@@ -279,13 +279,17 @@
          this.agent.state.systemPrompt = this._baseSystemPrompt;
 --- a/node_modules/@mariozechner/pi-coding-agent/dist/core/extensions/loader.js
 +++ b/node_modules/@mariozechner/pi-coding-agent/dist/core/extensions/loader.js
-@@ -268,15 +268,22 @@
+@@ -268,15 +268,24 @@
      };
      return api;
  }
 -async function loadExtensionModule(extensionPath) {
 -    const jiti = createJiti(import.meta.url, {
 -        moduleCache: false,
+-        // In Bun binary: use virtualModules for bundled packages (no filesystem resolution)
+-        // Also disable tryNative so jiti handles ALL imports (not just the entry point)
+-        // In Node.js/dev: use aliases to resolve to node_modules paths
+-        ...(isBunBinary ? { virtualModules: VIRTUAL_MODULES, tryNative: false } : { alias: getAliases() }),
 +let _extensionJiti = null;
 +function getExtensionJiti() {
 +    if (_extensionJiti)
@@ -293,10 +297,12 @@
 +    _extensionJiti = createJiti(import.meta.url, {
 +        fsCache: path.join(process.env.HOME || process.cwd(), ".pi", "agent", "cache", "jiti"),
 +        moduleCache: true,
-         // In Bun binary: use virtualModules for bundled packages (no filesystem resolution)
-         // Also disable tryNative so jiti handles ALL imports (not just the entry point)
-         // In Node.js/dev: use aliases to resolve to node_modules paths
-         ...(isBunBinary ? { virtualModules: VIRTUAL_MODULES, tryNative: false } : { alias: getAliases() }),
++        // Use virtual modules for bundled Pi packages so extensions can import them
++        // even when they are not direct dependencies of the extension package.
++        // Keep aliases for Node.js/dev package resolution.
++        virtualModules: VIRTUAL_MODULES,
++        tryNative: false,
++        ...(!isBunBinary ? { alias: getAliases() } : {}),
      });
 -    const module = await jiti.import(extensionPath, { default: true });
 +    return _extensionJiti;
@@ -306,7 +312,7 @@
      const factory = module;
      return typeof factory !== "function" ? undefined : factory;
  }
-@@ -327,6 +334,25 @@
+@@ -327,6 +336,25 @@
      return extension;
  }
  /**
@@ -332,7 +338,7 @@
   * Load extensions from paths.
   */
  export async function loadExtensions(paths, cwd, eventBus) {
-@@ -334,16 +360,27 @@
+@@ -334,16 +362,27 @@
      const errors = [];
      const resolvedEventBus = eventBus ?? createEventBus();
      const runtime = createExtensionRuntime();
