@@ -614,7 +614,46 @@
          }
          if (this.onChange) {
              this.onChange(this.getText());
-@@ -1215,6 +1248,7 @@
+@@ -1074,7 +1107,13 @@
+      * Use this for all non-vertical cursor movements to reset sticky column behavior.
+      */
+     setCursorCol(col) {
+-        this.state.cursorCol = col;
++        if (this.state.cursorCol !== col) {
++            this.state.cursorCol = col;
++            this.invalidate();
++        }
++        else {
++            this.state.cursorCol = col;
++        }
+         this.preferredVisualCol = null;
+         this.snappedFromCursorCol = null;
+     }
+@@ -1107,10 +1146,15 @@
+         const targetMaxVisualCol = isLastTargetSegment ? targetVL.length : Math.max(0, targetVL.length - 1);
+         const moveToVisualCol = this.computeVerticalMoveColumn(currentVisualCol, sourceMaxVisualCol, targetMaxVisualCol);
+         // Set cursor position
++        const previousCursorLine = this.state.cursorLine;
++        const previousCursorCol = this.state.cursorCol;
+         this.state.cursorLine = targetVL.logicalLine;
+         const targetCol = targetVL.startCol + moveToVisualCol;
+         const logicalLine = this.state.lines[targetVL.logicalLine] || "";
+         this.state.cursorCol = Math.min(targetCol, logicalLine.length);
++        if (this.state.cursorLine !== previousCursorLine || this.state.cursorCol !== previousCursorCol) {
++            this.invalidate();
++        }
+         // Snap cursor to atomic segment boundary (e.g. paste markers)
+         // so the cursor never lands in the middle of a multi-grapheme unit.
+         // Single-grapheme segments don't need snapping.
+@@ -1144,6 +1188,7 @@
+                 // resolve it to the correct visual column.
+                 this.snappedFromCursorCol = this.state.cursorCol;
+                 this.state.cursorCol = seg.index;
++                this.invalidate();
+                 return;
+             }
+         }
+@@ -1215,6 +1260,7 @@
              // Delete from start of line up to cursor
              this.state.lines[this.state.cursorLine] = currentLine.slice(this.state.cursorCol);
              this.setCursorCol(0);
@@ -622,7 +661,7 @@
          }
          else if (this.state.cursorLine > 0) {
              this.pushUndoSnapshot();
-@@ -1226,6 +1260,7 @@
+@@ -1226,6 +1272,7 @@
              this.state.lines.splice(this.state.cursorLine, 1);
              this.state.cursorLine--;
              this.setCursorCol(previousLine.length);
@@ -630,7 +669,7 @@
          }
          if (this.onChange) {
              this.onChange(this.getText());
-@@ -1242,6 +1277,7 @@
+@@ -1242,6 +1289,7 @@
              this.lastAction = "kill";
              // Delete from cursor to end of line
              this.state.lines[this.state.cursorLine] = currentLine.slice(0, this.state.cursorCol);
@@ -638,7 +677,7 @@
          }
          else if (this.state.cursorLine < this.state.lines.length - 1) {
              this.pushUndoSnapshot();
-@@ -1251,6 +1287,7 @@
+@@ -1251,6 +1299,7 @@
              const nextLine = this.state.lines[this.state.cursorLine + 1] || "";
              this.state.lines[this.state.cursorLine] = currentLine + nextLine;
              this.state.lines.splice(this.state.cursorLine + 1, 1);
@@ -646,7 +685,7 @@
          }
          if (this.onChange) {
              this.onChange(this.getText());
-@@ -1271,6 +1308,7 @@
+@@ -1271,6 +1320,7 @@
                  this.state.lines.splice(this.state.cursorLine, 1);
                  this.state.cursorLine--;
                  this.setCursorCol(previousLine.length);
@@ -654,7 +693,7 @@
              }
          }
          else {
-@@ -1287,6 +1325,7 @@
+@@ -1287,6 +1337,7 @@
              this.state.lines[this.state.cursorLine] =
                  currentLine.slice(0, deleteFrom) + currentLine.slice(this.state.cursorCol);
              this.setCursorCol(deleteFrom);
@@ -662,7 +701,7 @@
          }
          if (this.onChange) {
              this.onChange(this.getText());
-@@ -1305,6 +1344,7 @@
+@@ -1305,6 +1356,7 @@
                  const nextLine = this.state.lines[this.state.cursorLine + 1] || "";
                  this.state.lines[this.state.cursorLine] = currentLine + nextLine;
                  this.state.lines.splice(this.state.cursorLine + 1, 1);
@@ -670,7 +709,7 @@
              }
          }
          else {
-@@ -1320,6 +1360,7 @@
+@@ -1320,6 +1372,7 @@
              this.lastAction = "kill";
              this.state.lines[this.state.cursorLine] =
                  currentLine.slice(0, this.state.cursorCol) + currentLine.slice(deleteTo);
@@ -678,7 +717,7 @@
          }
          if (this.onChange) {
              this.onChange(this.getText());
-@@ -1340,6 +1381,7 @@
+@@ -1340,6 +1393,7 @@
              const before = currentLine.slice(0, this.state.cursorCol);
              const after = currentLine.slice(this.state.cursorCol + graphemeLength);
              this.state.lines[this.state.cursorLine] = before + after;
@@ -686,7 +725,7 @@
          }
          else if (this.state.cursorLine < this.state.lines.length - 1) {
              this.pushUndoSnapshot();
-@@ -1347,6 +1389,7 @@
+@@ -1347,6 +1401,7 @@
              const nextLine = this.state.lines[this.state.cursorLine + 1] || "";
              this.state.lines[this.state.cursorLine] = currentLine + nextLine;
              this.state.lines.splice(this.state.cursorLine + 1, 1);
@@ -694,7 +733,7 @@
          }
          if (this.onChange) {
              this.onChange(this.getText());
-@@ -1376,6 +1419,13 @@
+@@ -1376,6 +1431,13 @@
       * - length: length of this visual line segment
       */
      buildVisualLineMap(width) {
@@ -708,7 +747,7 @@
          const visualLines = [];
          for (let i = 0; i < this.state.lines.length; i++) {
              const line = this.state.lines[i] || "";
-@@ -1399,6 +1449,9 @@
+@@ -1399,6 +1461,9 @@
                  }
              }
          }
@@ -718,7 +757,7 @@
          return visualLines;
      }
      /**
-@@ -1577,6 +1630,7 @@
+@@ -1577,6 +1642,7 @@
              const after = currentLine.slice(this.state.cursorCol);
              this.state.lines[this.state.cursorLine] = before + text + after;
              this.setCursorCol(this.state.cursorCol + text.length);
@@ -726,7 +765,7 @@
          }
          else {
              // Multi-line insert
-@@ -1595,6 +1649,7 @@
+@@ -1595,6 +1661,7 @@
              // Update cursor position
              this.state.cursorLine = lastLineIndex;
              this.setCursorCol((lines[lines.length - 1] || "").length);
@@ -734,7 +773,7 @@
          }
          if (this.onChange) {
              this.onChange(this.getText());
-@@ -1617,6 +1672,7 @@
+@@ -1617,6 +1684,7 @@
              const after = currentLine.slice(this.state.cursorCol);
              this.state.lines[this.state.cursorLine] = before + after;
              this.setCursorCol(this.state.cursorCol - deleteLen);
@@ -742,7 +781,7 @@
          }
          else {
              // Multi-line delete - cursor is at end of last yanked line
-@@ -1631,6 +1687,7 @@
+@@ -1631,6 +1699,7 @@
              // Update cursor
              this.state.cursorLine = startLine;
              this.setCursorCol(startCol);
@@ -750,7 +789,7 @@
          }
          if (this.onChange) {
              this.onChange(this.getText());
-@@ -1647,6 +1704,7 @@
+@@ -1647,6 +1716,7 @@
          Object.assign(this.state, snapshot);
          this.lastAction = null;
          this.preferredVisualCol = null;
@@ -758,7 +797,7 @@
          if (this.onChange) {
              this.onChange(this.getText());
          }
-@@ -1838,8 +1896,28 @@
+@@ -1838,8 +1908,28 @@
          }
          const currentLine = this.state.lines[this.state.cursorLine] || "";
          const textBeforeCursor = currentLine.slice(0, this.state.cursorCol);
