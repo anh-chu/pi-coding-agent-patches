@@ -277,6 +277,91 @@
          this._resourceLoader.extendResources(extensionPaths);
          this._baseSystemPrompt = this._rebuildSystemPrompt(this.getActiveToolNames());
          this.agent.state.systemPrompt = this._baseSystemPrompt;
+--- a/node_modules/@mariozechner/pi-coding-agent/dist/core/extensions/loader.js
++++ b/node_modules/@mariozechner/pi-coding-agent/dist/core/extensions/loader.js
+@@ -268,15 +268,21 @@
+     };
+     return api;
+ }
+-async function loadExtensionModule(extensionPath) {
+-    const jiti = createJiti(import.meta.url, {
+-        moduleCache: false,
++let _extensionJiti = null;
++function getExtensionJiti() {
++    if (_extensionJiti)
++        return _extensionJiti;
++    _extensionJiti = createJiti(import.meta.url, {
++        moduleCache: true,
+         // In Bun binary: use virtualModules for bundled packages (no filesystem resolution)
+         // Also disable tryNative so jiti handles ALL imports (not just the entry point)
+         // In Node.js/dev: use aliases to resolve to node_modules paths
+         ...(isBunBinary ? { virtualModules: VIRTUAL_MODULES, tryNative: false } : { alias: getAliases() }),
+     });
+-    const module = await jiti.import(extensionPath, { default: true });
++    return _extensionJiti;
++}
++async function loadExtensionModule(extensionPath) {
++    const module = await getExtensionJiti().import(extensionPath, { default: true });
+     const factory = module;
+     return typeof factory !== "function" ? undefined : factory;
+ }
+@@ -327,6 +333,25 @@
+     return extension;
+ }
+ /**
++ * Map extension loading with concurrency control.
++ */
++async function mapExtensionsWithConcurrency(items, fn, concurrency) {
++    const results = new Array(items.length);
++    let index = 0;
++    const promises = [];
++    for (let i = 0; i < Math.min(concurrency, items.length); i++) {
++        promises.push((async () => {
++            while (index < items.length) {
++                const idx = index++;
++                results[idx] = await fn(items[idx], idx);
++            }
++        })());
++    }
++    await Promise.all(promises);
++    return results;
++}
++
++/**
+  * Load extensions from paths.
+  */
+ export async function loadExtensions(paths, cwd, eventBus) {
+@@ -334,16 +359,27 @@
+     const errors = [];
+     const resolvedEventBus = eventBus ?? createEventBus();
+     const runtime = createExtensionRuntime();
+-    for (const extPath of paths) {
+-        const { extension, error } = await loadExtension(extPath, cwd, resolvedEventBus, runtime);
++
++    // Load extensions with modest concurrency. Extension imports are CPU-bound through jiti,
++    // so a small cap avoids overloading startup while still overlapping async work.
++    const results = await mapExtensionsWithConcurrency(
++        paths,
++        async (extPath) => loadExtension(extPath, cwd, resolvedEventBus, runtime),
++        4
++    );
++
++    // Collect results preserving order
++    for (let i = 0; i < results.length; i++) {
++        const { extension, error } = results[i];
+         if (error) {
+-            errors.push({ path: extPath, error });
++            errors.push({ path: paths[i], error });
+             continue;
+         }
+         if (extension) {
+             extensions.push(extension);
+         }
+     }
++
+     return {
+         extensions,
+         errors,
 --- a/node_modules/@mariozechner/pi-coding-agent/dist/modes/interactive/interactive-mode.js
 +++ b/node_modules/@mariozechner/pi-coding-agent/dist/modes/interactive/interactive-mode.js
 @@ -452,8 +452,14 @@
@@ -628,61 +713,3 @@
      }
      async runAutocompleteRequest(requestId, controller, snapshotText, snapshotLine, snapshotCol, options) {
          if (!this.autocompleteProvider)
---- a/node_modules/@mariozechner/pi-coding-agent/dist/core/extensions/loader.js
-+++ b/node_modules/@mariozechner/pi-coding-agent/dist/core/extensions/loader.js
-@@ -327,6 +327,25 @@
-     return extension;
- }
- /**
-+ * Map extension loading with concurrency control.
-+ */
-+async function mapExtensionsWithConcurrency(items, fn, concurrency) {
-+    const results = new Array(items.length);
-+    let index = 0;
-+    const promises = [];
-+    for (let i = 0; i < Math.min(concurrency, items.length); i++) {
-+        promises.push((async () => {
-+            while (index < items.length) {
-+                const idx = index++;
-+                results[idx] = await fn(items[idx], idx);
-+            }
-+        })());
-+    }
-+    await Promise.all(promises);
-+    return results;
-+}
-+
-+/**
-  * Load extensions from paths.
-  */
- export async function loadExtensions(paths, cwd, eventBus) {
-@@ -334,16 +353,26 @@
-     const errors = [];
-     const resolvedEventBus = eventBus ?? createEventBus();
-     const runtime = createExtensionRuntime();
--    for (const extPath of paths) {
--        const { extension, error } = await loadExtension(extPath, cwd, resolvedEventBus, runtime);
-+
-+    // Load extensions in parallel with concurrency limit of 8
-+    const results = await mapExtensionsWithConcurrency(
-+        paths,
-+        async (extPath) => loadExtension(extPath, cwd, resolvedEventBus, runtime),
-+        8
-+    );
-+
-+    // Collect results preserving order
-+    for (let i = 0; i < results.length; i++) {
-+        const { extension, error } = results[i];
-         if (error) {
--            errors.push({ path: extPath, error });
-+            errors.push({ path: paths[i], error });
-             continue;
-         }
-         if (extension) {
-             extensions.push(extension);
-         }
-     }
-+
-     return {
-         extensions,
-         errors,
