@@ -18,7 +18,7 @@ This repository stores patches for [@mariozechner/pi-coding-agent](https://www.n
 - Caches editor layout and visual line maps to reduce cursor-move and redraw cost
 - Caches the system prompt in AgentSession to avoid re-merging skills/tools/context on every send
 - Tiered autocomplete debounce: 0ms for Tab/first-trigger chars, 150ms for mid-word typing
-- Parallelizes extension loading at startup with a modest concurrency cap to reduce cold startup time
+- Loads extensions with a low concurrency cap tuned for cached jiti imports, avoiding CPU and filesystem cache contention
 - Reuses one cached jiti importer for extension loading to avoid repeated importer setup and module parsing
 - Stores jiti transform cache under `~/.pi/agent/cache/jiti` so repeated starts reuse compiled extension code
 - Uses bundled virtual modules for extension imports in Node.js, fixing missing peer imports and avoiding slow failed resolution

@@ -413,12 +413,12 @@
 -    for (const extPath of paths) {
 -        const { extension, error } = await loadExtension(extPath, cwd, resolvedEventBus, runtime);
 +
-+    // Load extensions with modest concurrency. Extension imports are CPU-bound through jiti,
-+    // so a small cap avoids overloading startup while still overlapping async work.
++    // Load extensions with very low concurrency. With a shared cached jiti importer,
++    // higher concurrency contends on CPU, module cache, and filesystem cache work.
 +    const results = await mapExtensionsWithConcurrency(
 +        paths,
 +        async (extPath) => loadExtension(extPath, cwd, resolvedEventBus, runtime),
-+        4
++        2
 +    );
 +
 +    // Collect results preserving order
