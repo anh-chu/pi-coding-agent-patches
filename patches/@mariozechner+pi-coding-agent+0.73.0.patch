@@ -507,3 +507,41 @@
          if (this.onChange) {
              this.onChange(this.getText());
          }
+@@ -156,6 +156,7 @@
+     maxPrimaryColumnWidth: 32,
+ };
+ const ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS = 20;
++const WORD_COMPLETION_DEBOUNCE_MS = 150;
+ export class Editor {
+     state = {
+         lines: [""],
+@@ -1838,8 +1896,28 @@
+         }
+         const currentLine = this.state.lines[this.state.cursorLine] || "";
+         const textBeforeCursor = currentLine.slice(0, this.state.cursorCol);
++
++        // First char triggers - immediate response
++        if (textBeforeCursor.endsWith("/") && this.isAtStartOfMessage()) {
++            return 0; // Slash command trigger
++        }
++        if (/(?:^|[ \t])[@#]$/.test(textBeforeCursor)) {
++            return 0; // @ or # at token boundary
++        }
++
++        // Symbol-based completion context - low debounce
+         const isSymbolAutocompleteContext = /(?:^|[ \t])(?:@(?:"[^"]*|[^\s]*)|#[^\s]*)$/.test(textBeforeCursor);
+-        return isSymbolAutocompleteContext ? ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS : 0;
++        if (isSymbolAutocompleteContext) {
++            return ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS;
++        }
++
++        // Check if in slash command context - immediate for command completion
++        if (this.isInSlashCommandContext(textBeforeCursor)) {
++            return 0;
++        }
++
++        // Regular word completion - higher debounce
++        return WORD_COMPLETION_DEBOUNCE_MS;
+     }
+     async runAutocompleteRequest(requestId, controller, snapshotText, snapshotLine, snapshotCol, options) {
+         if (!this.autocompleteProvider)
