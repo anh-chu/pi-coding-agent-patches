@@ -98,7 +98,6 @@
              for (const info of results) {
                  if (info) {
                      sessions.push(info);
-
 --- a/node_modules/@mariozechner/pi-coding-agent/dist/core/package-manager.js
 +++ b/node_modules/@mariozechner/pi-coding-agent/dist/core/package-manager.js
 @@ -577,6 +577,8 @@
@@ -195,19 +194,10 @@
      }
      async shouldUpdateNpmSource(source, scope) {
          const installedPath = this.getNpmInstallPath(source, scope);
-
 --- a/node_modules/@mariozechner/pi-coding-agent/dist/modes/interactive/interactive-mode.js
 +++ b/node_modules/@mariozechner/pi-coding-agent/dist/modes/interactive/interactive-mode.js
-@@ -450,7 +450,7 @@
-         // Set up git branch watcher (uses provider instead of footer)
-         this.footerDataProvider.onBranchChange(() => {
-             this.ui.requestRender();
-         });
-         // Initialize available provider count for footer display
--        await this.updateAvailableProviderCount();
-+        void this.updateAvailableProviderCount();
-     }
-@@ -452,8 +452,12 @@
+@@ -452,8 +452,14 @@
+         this.isInitialized = true;
          // Initialize extensions first so resources are shown before messages
          await this.rebindCurrentSession();
 -        // Render initial messages AFTER showing loaded resources
@@ -223,7 +213,16 @@
          // Set up theme file watcher
          onThemeChange(() => {
              this.ui.invalidate();
-@@ -1194,7 +1198,7 @@
+@@ -465,7 +471,7 @@
+             this.ui.requestRender();
+         });
+         // Initialize available provider count for footer display
+-        await this.updateAvailableProviderCount();
++        void this.updateAvailableProviderCount();
+     }
+     /**
+      * Update terminal title with session name and cwd.
+@@ -1194,7 +1200,7 @@
          this.applyRuntimeSettings();
          await this.bindCurrentSessionExtensions();
          this.subscribeToAgent();
@@ -232,3 +231,279 @@
          this.updateEditorBorderColor();
          this.updateTerminalTitle();
      }
+--- a/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-tui/dist/components/editor.js
++++ b/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-tui/dist/components/editor.js
+@@ -211,6 +211,10 @@
+     onSubmit;
+     onChange;
+     disableSubmit = false;
++    // Layout caching for performance
++    cacheRevision = 0;
++    layoutTextCache = new Map(); // Map from "width:revision" to layout result
++    buildVisualLineMapCache = new Map(); // Map from "width:revision" to visual line map
+     constructor(tui, theme, options = {}) {
+         this.tui = tui;
+         this.theme = theme;
+@@ -310,12 +314,21 @@
+         this.setCursorCol(this.state.lines[this.state.cursorLine]?.length || 0);
+         // Reset scroll - render() will adjust to show cursor
+         this.scrollOffset = 0;
++        this.invalidate(); // Invalidate layout cache
+         if (this.onChange) {
+             this.onChange(this.getText());
+         }
+     }
+     invalidate() {
+-        // No cached state to invalidate currently
++        // Invalidate layout caches when text or state changes
++        this.cacheRevision++;
++        // Clear caches to avoid memory leaks
++        if (this.layoutTextCache.size > 10) {
++            this.layoutTextCache.clear();
++        }
++        if (this.buildVisualLineMapCache.size > 10) {
++            this.buildVisualLineMapCache.clear();
++        }
+     }
+     render(width) {
+         const maxPadding = Math.max(0, Math.floor((width - 1) / 2));
+@@ -498,6 +511,7 @@
+                     this.state.lines = result.lines;
+                     this.state.cursorLine = result.cursorLine;
+                     this.setCursorCol(result.cursorCol);
++                    this.invalidate(); // Invalidate layout cache
+                     this.cancelAutocomplete();
+                     if (this.onChange)
+                         this.onChange(this.getText());
+@@ -513,6 +527,7 @@
+                     this.state.lines = result.lines;
+                     this.state.cursorLine = result.cursorLine;
+                     this.setCursorCol(result.cursorCol);
++                    this.invalidate(); // Invalidate layout cache
+                     if (this.autocompletePrefix.startsWith("/")) {
+                         this.cancelAutocomplete();
+                         // Fall through to submit
+@@ -684,6 +699,13 @@
+         }
+     }
+     layoutText(contentWidth) {
++        // Check cache first
++        const cacheKey = `${contentWidth}:${this.cacheRevision}`;
++        const cached = this.layoutTextCache.get(cacheKey);
++        if (cached) {
++            return cached;
++        }
++
+         const layoutLines = [];
+         if (this.state.lines.length === 0 || (this.state.lines.length === 1 && this.state.lines[0] === "")) {
+             // Empty editor
+@@ -764,6 +786,9 @@
+                 }
+             }
+         }
++
++        // Cache the result
++        this.layoutTextCache.set(cacheKey, layoutLines);
+         return layoutLines;
+     }
+     getText() {
+@@ -841,6 +866,7 @@
+             // Single line - insert at cursor position
+             this.state.lines[this.state.cursorLine] = beforeCursor + normalized + afterCursor;
+             this.setCursorCol(this.state.cursorCol + normalized.length);
++            this.invalidate(); // Invalidate layout cache
+         }
+         else {
+             // Multi-line insertion
+@@ -858,6 +884,7 @@
+             ];
+             this.state.cursorLine += insertedLines.length - 1;
+             this.setCursorCol((insertedLines[insertedLines.length - 1] || "").length);
++            this.invalidate(); // Invalidate layout cache
+         }
+         if (this.onChange) {
+             this.onChange(this.getText());
+@@ -882,6 +909,7 @@
+         const after = line.slice(this.state.cursorCol);
+         this.state.lines[this.state.cursorLine] = before + char + after;
+         this.setCursorCol(this.state.cursorCol + char.length);
++        this.invalidate(); // Invalidate layout cache
+         if (this.onChange) {
+             this.onChange(this.getText());
+         }
+@@ -990,6 +1018,7 @@
+         // Move cursor to start of new line
+         this.state.cursorLine++;
+         this.setCursorCol(0);
++        this.invalidate(); // Invalidate layout cache
+         if (this.onChange) {
+             this.onChange(this.getText());
+         }
+@@ -1016,6 +1045,7 @@
+         this.scrollOffset = 0;
+         this.undoStack.clear();
+         this.lastAction = null;
++        this.invalidate(); // Invalidate layout cache
+         if (this.onChange)
+             this.onChange("");
+         if (this.onSubmit)
+@@ -1037,6 +1067,7 @@
+             const after = line.slice(this.state.cursorCol);
+             this.state.lines[this.state.cursorLine] = before + after;
+             this.setCursorCol(this.state.cursorCol - graphemeLength);
++            this.invalidate(); // Invalidate layout cache
+         }
+         else if (this.state.cursorLine > 0) {
+             this.pushUndoSnapshot();
+@@ -1047,6 +1078,7 @@
+             this.state.lines.splice(this.state.cursorLine, 1);
+             this.state.cursorLine--;
+             this.setCursorCol(previousLine.length);
++            this.invalidate(); // Invalidate layout cache
+         }
+         if (this.onChange) {
+             this.onChange(this.getText());
+@@ -1215,6 +1247,7 @@
+             // Delete from start of line up to cursor
+             this.state.lines[this.state.cursorLine] = currentLine.slice(this.state.cursorCol);
+             this.setCursorCol(0);
++            this.invalidate(); // Invalidate layout cache
+         }
+         else if (this.state.cursorLine > 0) {
+             this.pushUndoSnapshot();
+@@ -1226,6 +1259,7 @@
+             this.state.lines.splice(this.state.cursorLine, 1);
+             this.state.cursorLine--;
+             this.setCursorCol(previousLine.length);
++            this.invalidate(); // Invalidate layout cache
+         }
+         if (this.onChange) {
+             this.onChange(this.getText());
+@@ -1242,6 +1276,7 @@
+             this.lastAction = "kill";
+             // Delete from cursor to end of line
+             this.state.lines[this.state.cursorLine] = currentLine.slice(0, this.state.cursorCol);
++            this.invalidate(); // Invalidate layout cache
+         }
+         else if (this.state.cursorLine < this.state.lines.length - 1) {
+             this.pushUndoSnapshot();
+@@ -1251,6 +1286,7 @@
+             const nextLine = this.state.lines[this.state.cursorLine + 1] || "";
+             this.state.lines[this.state.cursorLine] = currentLine + nextLine;
+             this.state.lines.splice(this.state.cursorLine + 1, 1);
++            this.invalidate(); // Invalidate layout cache
+         }
+         if (this.onChange) {
+             this.onChange(this.getText());
+@@ -1271,6 +1307,7 @@
+                 this.state.lines.splice(this.state.cursorLine, 1);
+                 this.state.cursorLine--;
+                 this.setCursorCol(previousLine.length);
++                this.invalidate(); // Invalidate layout cache
+             }
+         }
+         else {
+@@ -1287,6 +1324,7 @@
+             this.state.lines[this.state.cursorLine] =
+                 currentLine.slice(0, deleteFrom) + currentLine.slice(this.state.cursorCol);
+             this.setCursorCol(deleteFrom);
++            this.invalidate(); // Invalidate layout cache
+         }
+         if (this.onChange) {
+             this.onChange(this.getText());
+@@ -1305,6 +1343,7 @@
+                 const nextLine = this.state.lines[this.state.cursorLine + 1] || "";
+                 this.state.lines[this.state.cursorLine] = currentLine + nextLine;
+                 this.state.lines.splice(this.state.cursorLine + 1, 1);
++                this.invalidate(); // Invalidate layout cache
+             }
+         }
+         else {
+@@ -1320,6 +1359,7 @@
+             this.lastAction = "kill";
+             this.state.lines[this.state.cursorLine] =
+                 currentLine.slice(0, this.state.cursorCol) + currentLine.slice(deleteTo);
++            this.invalidate(); // Invalidate layout cache
+         }
+         if (this.onChange) {
+             this.onChange(this.getText());
+@@ -1340,6 +1380,7 @@
+             const before = currentLine.slice(0, this.state.cursorCol);
+             const after = currentLine.slice(this.state.cursorCol + graphemeLength);
+             this.state.lines[this.state.cursorLine] = before + after;
++            this.invalidate(); // Invalidate layout cache
+         }
+         else if (this.state.cursorLine < this.state.lines.length - 1) {
+             this.pushUndoSnapshot();
+@@ -1347,6 +1388,7 @@
+             const nextLine = this.state.lines[this.state.cursorLine + 1] || "";
+             this.state.lines[this.state.cursorLine] = currentLine + nextLine;
+             this.state.lines.splice(this.state.cursorLine + 1, 1);
++            this.invalidate(); // Invalidate layout cache
+         }
+         if (this.onChange) {
+             this.onChange(this.getText());
+@@ -1376,6 +1418,13 @@
+      * - length: length of this visual line segment
+      */
+     buildVisualLineMap(width) {
++        // Check cache first
++        const cacheKey = `${width}:${this.cacheRevision}`;
++        const cached = this.buildVisualLineMapCache.get(cacheKey);
++        if (cached) {
++            return cached;
++        }
++
+         const visualLines = [];
+         for (let i = 0; i < this.state.lines.length; i++) {
+             const line = this.state.lines[i] || "";
+@@ -1399,6 +1448,9 @@
+                 }
+             }
+         }
++
++        // Cache the result
++        this.buildVisualLineMapCache.set(cacheKey, visualLines);
+         return visualLines;
+     }
+     /**
+@@ -1577,6 +1629,7 @@
+             const after = currentLine.slice(this.state.cursorCol);
+             this.state.lines[this.state.cursorLine] = before + text + after;
+             this.setCursorCol(this.state.cursorCol + text.length);
++            this.invalidate(); // Invalidate layout cache
+         }
+         else {
+             // Multi-line insert
+@@ -1595,6 +1648,7 @@
+             // Update cursor position
+             this.state.cursorLine = lastLineIndex;
+             this.setCursorCol((lines[lines.length - 1] || "").length);
++            this.invalidate(); // Invalidate layout cache
+         }
+         if (this.onChange) {
+             this.onChange(this.getText());
+@@ -1617,6 +1671,7 @@
+             const after = currentLine.slice(this.state.cursorCol);
+             this.state.lines[this.state.cursorLine] = before + after;
+             this.setCursorCol(this.state.cursorCol - deleteLen);
++            this.invalidate(); // Invalidate layout cache
+         }
+         else {
+             // Multi-line delete - cursor is at end of last yanked line
+@@ -1631,6 +1686,7 @@
+             // Update cursor
+             this.state.cursorLine = startLine;
+             this.setCursorCol(startCol);
++            this.invalidate(); // Invalidate layout cache
+         }
+         if (this.onChange) {
+             this.onChange(this.getText());
+@@ -1647,6 +1703,7 @@
+         Object.assign(this.state, snapshot);
+         this.lastAction = null;
+         this.preferredVisualCol = null;
++        this.invalidate(); // Invalidate layout cache
+         if (this.onChange) {
+             this.onChange(this.getText());
+         }

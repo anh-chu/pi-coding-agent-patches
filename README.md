@@ -6,7 +6,7 @@ This repository stores patches for [@mariozechner/pi-coding-agent](https://www.n
 
 ### @mariozechner+pi-coding-agent+0.73.0.patch
 
-**Purpose:** Performance optimizations for startup and session loading.
+**Purpose:** Performance optimizations for startup, session loading, and editor rendering.
 
 **Changes:**
 - Introduces `mapWithConcurrency()` utility function to process arrays with a concurrency limit while preserving order
@@ -15,6 +15,7 @@ This repository stores patches for [@mariozechner/pi-coding-agent](https://www.n
 - Adds resolve caching in DefaultPackageManager to avoid rescanning skills/prompts/themes/extensions on repeated calls
 - Defers interactive startup provider-count updates so the UI can paint sooner without blocking on footer metadata
 - Defers initial message rendering to next tick, allowing UI to paint before loading chat history
+- Caches editor layout and visual line maps to reduce cursor-move and redraw cost
 
 **Why:** Improves startup performance and memory efficiency when loading sessions with many messages, preventing excessive memory accumulation and UI blocking during startup.
 
