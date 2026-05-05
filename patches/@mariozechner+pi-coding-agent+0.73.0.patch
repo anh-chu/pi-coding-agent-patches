@@ -98,3 +98,100 @@
              for (const info of results) {
                  if (info) {
                      sessions.push(info);
+
+--- a/node_modules/@mariozechner/pi-coding-agent/dist/core/package-manager.js
++++ b/node_modules/@mariozechner/pi-coding-agent/dist/core/package-manager.js
+@@ -577,6 +577,8 @@
+     globalNpmRoot;
+     globalNpmRootCommandKey;
+     progressCallback;
++    resolveCacheKey;
++    resolveCachedPaths;
+     constructor(options) {
+         this.cwd = options.cwd;
+         this.agentDir = options.agentDir;
+@@ -585,6 +587,33 @@
+     setProgressCallback(callback) {
+         this.progressCallback = callback;
+     }
++    buildResolveKey() {
++        const globalSettings = this.settingsManager.getGlobalSettings();
++        const projectSettings = this.settingsManager.getProjectSettings();
++        const key = JSON.stringify({
++            cwd: this.cwd,
++            agentDir: this.agentDir,
++            global: {
++                packages: globalSettings.packages,
++                extensions: globalSettings.extensions,
++                skills: globalSettings.skills,
++                prompts: globalSettings.prompts,
++                themes: globalSettings.themes,
++            },
++            project: {
++                packages: projectSettings.packages,
++                extensions: projectSettings.extensions,
++                skills: projectSettings.skills,
++                prompts: projectSettings.prompts,
++                themes: projectSettings.themes,
++            },
++        });
++        return key;
++    }
++    clearResolveCache() {
++        this.resolveCacheKey = undefined;
++        this.resolveCachedPaths = undefined;
++    }
+     addSourceToSettings(source, options) {
+         const scope = options?.local ? "project" : "user";
+         const currentSettings = scope === "project" ? this.settingsManager.getProjectSettings() : this.settingsManager.getGlobalSettings();
+@@ -601,6 +630,7 @@
+         else {
+             this.settingsManager.setPackages(nextPackages);
+         }
++        this.clearResolveCache();
+         return true;
+     }
+     removeSourceFromSettings(source, options) {
+@@ -618,6 +648,7 @@
+         else {
+             this.settingsManager.setPackages(nextPackages);
+         }
++        this.clearResolveCache();
+         return true;
+     }
+     getInstalledPath(source, scope) {
+@@ -653,6 +684,12 @@
+         }
+     }
+     async resolve(onMissing) {
++        if (!onMissing) {
++            const currentKey = this.buildResolveKey();
++            if (this.resolveCacheKey === currentKey && this.resolveCachedPaths) {
++                return this.resolveCachedPaths;
++            }
++        }
+         const accumulator = this.createAccumulator();
+         const globalSettings = this.settingsManager.getGlobalSettings();
+         const projectSettings = this.settingsManager.getProjectSettings();
+@@ -685,7 +722,12 @@
+             }, globalBaseDir);
+         }
+         this.addAutoDiscoveredResources(accumulator, globalSettings, projectSettings, globalBaseDir, projectBaseDir);
+-        return this.toResolvedPaths(accumulator);
++        const resolved = this.toResolvedPaths(accumulator);
++        if (!onMissing) {
++            this.resolveCacheKey = this.buildResolveKey();
++            this.resolveCachedPaths = resolved;
++        }
++        return resolved;
+     }
+     async resolveExtensionSources(sources, options) {
+         const accumulator = this.createAccumulator();
+@@ -843,6 +885,7 @@
+             tasks.push(this.runWithConcurrency(gitTasks, GIT_UPDATE_CONCURRENCY).then(() => { }));
+         }
+         await Promise.all(tasks);
++        this.clearResolveCache();
+     }
+     async shouldUpdateNpmSource(source, scope) {
+         const installedPath = this.getNpmInstallPath(source, scope);
