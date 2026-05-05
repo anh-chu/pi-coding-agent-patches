@@ -1,0 +1,17 @@
+{
+  "name": "pi-coding-agent-patches",
+  "version": "1.0.0",
+  "description": "Patches for @mariozechner/pi-coding-agent to improve concurrency and memory efficiency",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/pi-coding-agent-patches.git"
+  },
+  "keywords": [
+    "patch",
+    "pi-coding-agent",
+    "patch-package"
+  ],
+  "author": "",
+  "license": "MIT",
+  "private": true
+}

@@ -1,0 +1,46 @@
+# pi-coding-agent Patches
+
+This repository stores patches for [@mariozechner/pi-coding-agent](https://www.npmjs.com/package/@mariozechner/pi-coding-agent) to address specific issues or add optimizations.
+
+## Patches
+
+### @mariozechner+pi-coding-agent+0.73.0.patch
+
+**Purpose:** Adds concurrency-limited async mapping utility and optimizes session message previews.
+
+**Changes:**
+- Introduces `mapWithConcurrency()` utility function to process arrays with a concurrency limit while preserving order
+- Optimizes `buildSessionInfo()` to avoid unbounded string arrays when collecting message previews; now caps preview text at 4KB
+- Updates two session loading methods to use the new concurrent processing utility with a concurrency limit of 8
+
+**Why:** Improves performance and memory efficiency when loading sessions with many messages, preventing excessive memory accumulation during parallel file processing.
+
+## Usage
+
+To apply this patch to a consuming project:
+
+1. Install patch-package if not already installed:
+   ```bash
+   npm install --save-dev patch-package
+   ```
+
+2. Copy the patch file to your project's `patches/` directory:
+   ```bash
+   cp patches/@mariozechner+pi-coding-agent+0.73.0.patch YOUR_PROJECT/patches/
+   ```
+
+3. Apply the patch:
+   ```bash
+   npx patch-package @mariozechner/pi-coding-agent
+   ```
+
+4. Add or update the postinstall script in your `package.json`:
+   ```json
+   {
+     "scripts": {
+       "postinstall": "patch-package"
+     }
+   }
+   ```
+
+This ensures the patch is automatically applied whenever dependencies are reinstalled.

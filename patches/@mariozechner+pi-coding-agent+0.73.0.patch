@@ -1,0 +1,100 @@
+--- a/node_modules/@mariozechner/pi-coding-agent/dist/core/session-manager.js
++++ b/node_modules/@mariozechner/pi-coding-agent/dist/core/session-manager.js
+@@ -9,6 +9,26 @@
+ function createSessionId() {
+     return uuidv7();
+ }
++/** Map async work over array with concurrency limit. Preserves order. */
++async function mapWithConcurrency(items, fn, concurrency = 64, onProgress) {
++    const results = new Array(items.length);
++    let loaded = 0;
++    let index = 0;
++    const promises = [];
++    for (let i = 0; i < Math.min(concurrency, items.length); i++) {
++        const promise = (async () => {
++            while (index < items.length) {
++                const idx = index++;
++                results[idx] = await fn(items[idx], idx);
++                loaded++;
++                onProgress?.(loaded, items.length);
++            }
++        })();
++        promises.push(promise);
++    }
++    await Promise.all(promises);
++    return results;
++}
+ /** Generate a unique short ID (8 hex chars, collision-checked) */
+ function generateId(byId) {
+     for (let i = 0; i < 100; i++) {
+@@ -344,7 +364,8 @@
+         const stats = await stat(filePath);
+         let messageCount = 0;
+         let firstMessage = "";
+-        const allMessages = [];
++        let allMessagesText = "";
++        const MAX_PREVIEW = 4096;
+         let name;
+         for (const entry of entries) {
+             // Extract session name (use latest, including explicit clears)
+@@ -363,7 +384,12 @@
+             const textContent = extractTextContent(message);
+             if (!textContent)
+                 continue;
+-            allMessages.push(textContent);
++            if (allMessagesText.length < MAX_PREVIEW) {
++                allMessagesText += (allMessagesText ? " " : "") + textContent;
++                if (allMessagesText.length > MAX_PREVIEW) {
++                    allMessagesText = allMessagesText.slice(0, MAX_PREVIEW);
++                }
++            }
+             if (!firstMessage && message.role === "user") {
+                 firstMessage = textContent;
+             }
+@@ -381,7 +407,7 @@
+             modified,
+             messageCount,
+             firstMessage: firstMessage || "(no messages)",
+-            allMessagesText: allMessages.join(" "),
++            allMessagesText,
+         };
+     }
+     catch {
+@@ -397,13 +423,11 @@
+         const dirEntries = await readdir(dir);
+         const files = dirEntries.filter((f) => f.endsWith(".jsonl")).map((f) => join(dir, f));
+         const total = progressTotal ?? files.length;
+-        let loaded = 0;
+-        const results = await Promise.all(files.map(async (file) => {
+-            const info = await buildSessionInfo(file);
+-            loaded++;
++        const results = await mapWithConcurrency(files, async (file) => {
++            return await buildSessionInfo(file);
++        }, 8, (loaded) => {
+             onProgress?.(progressOffset + loaded, total);
+-            return info;
+-        }));
++        });
+         for (const info of results) {
+             if (info) {
+                 sessions.push(info);
+@@ -1084,15 +1108,13 @@
+                 }
+             }
+             // Process all files with progress tracking
+-            let loaded = 0;
+             const sessions = [];
+             const allFiles = dirFiles.flat();
+-            const results = await Promise.all(allFiles.map(async (file) => {
+-                const info = await buildSessionInfo(file);
+-                loaded++;
++            const results = await mapWithConcurrency(allFiles, async (file) => {
++                return await buildSessionInfo(file);
++            }, 8, (loaded) => {
+                 onProgress?.(loaded, totalFiles);
+-                return info;
+-            }));
++            });
+             for (const info of results) {
+                 if (info) {
+                     sessions.push(info);
