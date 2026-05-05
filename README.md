@@ -22,6 +22,7 @@ This repository stores patches for [@mariozechner/pi-coding-agent](https://www.n
 - Reuses one cached jiti importer for extension loading to avoid repeated importer setup and module parsing
 - Stores jiti transform cache under `~/.pi/agent/cache/jiti` so repeated starts reuse compiled extension code
 - Uses bundled virtual modules for extension imports in Node.js, fixing missing peer imports and avoiding slow failed resolution
+- Shows a minimal startup splash TUI before runtime/resource loading so the terminal responds immediately
 
 **Why:** Improves startup performance and memory efficiency when loading sessions with many messages, preventing excessive memory accumulation and UI blocking during startup.
 

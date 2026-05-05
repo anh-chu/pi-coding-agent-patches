@@ -1,3 +1,71 @@
+--- a/node_modules/@mariozechner/pi-coding-agent/dist/main.js
++++ b/node_modules/@mariozechner/pi-coding-agent/dist/main.js
+@@ -7,7 +7,7 @@
+ import { resolve } from "node:path";
+ import { createInterface } from "node:readline";
+ import { modelsAreEqual } from "@mariozechner/pi-ai";
+-import { ProcessTerminal, setKeybindings, TUI } from "@mariozechner/pi-tui";
++import { ProcessTerminal, setKeybindings, Text, TUI } from "@mariozechner/pi-tui";
+ import chalk from "chalk";
+ import { parseArgs, printHelp } from "./cli/args.js";
+ import { processFileArguments } from "./cli/file-processor.js";
+@@ -296,6 +296,23 @@
+ function resolveCliPaths(cwd, paths) {
+     return paths?.map((value) => (isLocalPath(value) ? resolve(cwd, value) : value));
+ }
++function startStartupSplash(settingsManager, appMode) {
++    if (appMode !== "interactive" || process.env.PI_STARTUP_SPLASH === "0") {
++        return undefined;
++    }
++    const ui = new TUI(new ProcessTerminal(), settingsManager.getShowHardwareCursor());
++    ui.setClearOnShrink(settingsManager.getClearOnShrink());
++    ui.addChild(new Text(chalk.dim("Starting Pi..."), 1, 1));
++    ui.start();
++    return () => {
++        try {
++            ui.stop();
++        }
++        catch {
++            // Ignore splash teardown errors; the real TUI starts next.
++        }
++    };
++}
+ async function promptForMissingSessionCwd(issue, settingsManager) {
+     initTheme(settingsManager.getTheme());
+     setKeybindings(KeybindingsManager.create());
+@@ -473,11 +490,19 @@
+         };
+     };
+     time("createRuntime");
+-    const runtime = await createAgentSessionRuntime(createRuntime, {
+-        cwd: sessionManager.getCwd(),
+-        agentDir,
+-        sessionManager,
+-    });
++    const startupBenchmark = isTruthyEnvFlag(process.env.PI_STARTUP_BENCHMARK);
++    const stopStartupSplash = startupBenchmark ? undefined : startStartupSplash(startupSettingsManager, appMode);
++    let runtime;
++    try {
++        runtime = await createAgentSessionRuntime(createRuntime, {
++            cwd: sessionManager.getCwd(),
++            agentDir,
++            sessionManager,
++        });
++    }
++    finally {
++        stopStartupSplash?.();
++    }
+     const { services, session, modelFallbackMessage } = runtime;
+     const { settingsManager, modelRegistry, resourceLoader } = services;
+     if (parsed.help) {
+@@ -520,7 +545,6 @@
+         console.error(chalk.red(formatNoModelsAvailableMessage()));
+         process.exit(1);
+     }
+-    const startupBenchmark = isTruthyEnvFlag(process.env.PI_STARTUP_BENCHMARK);
+     if (startupBenchmark && appMode !== "interactive") {
+         console.error(chalk.red("Error: PI_STARTUP_BENCHMARK only supports interactive mode"));
+         process.exit(1);
 --- a/node_modules/@mariozechner/pi-coding-agent/dist/core/session-manager.js
 +++ b/node_modules/@mariozechner/pi-coding-agent/dist/core/session-manager.js
 @@ -9,6 +9,26 @@
