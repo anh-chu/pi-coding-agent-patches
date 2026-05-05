@@ -194,6 +194,89 @@
      }
      async shouldUpdateNpmSource(source, scope) {
          const installedPath = this.getNpmInstallPath(source, scope);
+--- a/node_modules/@mariozechner/pi-coding-agent/dist/core/agent-session.js
++++ b/node_modules/@mariozechner/pi-coding-agent/dist/core/agent-session.js
+@@ -112,6 +112,9 @@
+     // Base system prompt (without extension appends) - used to apply fresh appends each turn
+     _baseSystemPrompt = "";
+     _baseSystemPromptOptions;
++    // System prompt caching
++    _systemPromptCache = null;
++    _systemPromptCacheKey = null;
+     constructor(config) {
+         this.agent = config.agent;
+         this.sessionManager = config.sessionManager;
+@@ -577,6 +580,7 @@
+         }
+         this.agent.state.tools = tools;
+         // Rebuild base system prompt with new tool set
++        this._invalidateSystemPromptCache();
+         this._baseSystemPrompt = this._rebuildSystemPrompt(validToolNames);
+         this.agent.state.systemPrompt = this._baseSystemPrompt;
+     }
+@@ -644,6 +648,24 @@
+         }
+         return Array.from(unique);
+     }
++    _generateSystemPromptCacheKey(validToolNames, loaderSystemPrompt, loaderAppendSystemPrompt, loadedSkills, loadedContextFiles, toolSnippets, promptGuidelines) {
++        // Generate a cache key based on all inputs that affect system prompt
++        const keyComponents = [
++            this._cwd,
++            validToolNames.sort().join(','),
++            loaderSystemPrompt,
++            loaderAppendSystemPrompt.join('\n'),
++            loadedSkills.map(s => s.name + ':' + s.location).sort().join(','),
++            loadedContextFiles.map(f => f.name + ':' + f.location).sort().join(','),
++            Object.keys(toolSnippets).sort().map(k => k + ':' + toolSnippets[k]).join(','),
++            promptGuidelines.sort().join(',')
++        ];
++        return keyComponents.join('|');
++    }
++    _invalidateSystemPromptCache() {
++        this._systemPromptCache = null;
++        this._systemPromptCacheKey = null;
++    }
+     _rebuildSystemPrompt(toolNames) {
+         const validToolNames = toolNames.filter((name) => this._toolRegistry.has(name));
+         const toolSnippets = {};
+@@ -673,7 +695,28 @@
+             toolSnippets,
+             promptGuidelines,
+         };
+-        return buildSystemPrompt(this._baseSystemPromptOptions);
++
++        // Check cache first
++        const cacheKey = this._generateSystemPromptCacheKey(validToolNames, loaderSystemPrompt, loaderAppendSystemPrompt, loadedSkills, loadedContextFiles, toolSnippets, promptGuidelines);
++        if (this._systemPromptCache && this._systemPromptCacheKey === cacheKey) {
++            this._baseSystemPromptOptions = {
++                cwd: this._cwd,
++                skills: loadedSkills,
++                contextFiles: loadedContextFiles,
++                customPrompt: loaderSystemPrompt,
++                appendSystemPrompt,
++                selectedTools: validToolNames,
++                toolSnippets,
++                promptGuidelines,
++            };
++            return this._systemPromptCache;
++        }
++
++        // Cache miss - rebuild and cache
++        const result = buildSystemPrompt(this._baseSystemPromptOptions);
++        this._systemPromptCache = result;
++        this._systemPromptCacheKey = cacheKey;
++        return result;
+     }
+     // =========================================================================
+     // Prompting
+@@ -1635,6 +1678,7 @@
+             promptPaths: this.buildExtensionResourcePaths(promptPaths),
+             themePaths: this.buildExtensionResourcePaths(themePaths),
+         };
++        this._invalidateSystemPromptCache();
+         this._resourceLoader.extendResources(extensionPaths);
+         this._baseSystemPrompt = this._rebuildSystemPrompt(this.getActiveToolNames());
+         this.agent.state.systemPrompt = this._baseSystemPrompt;
 --- a/node_modules/@mariozechner/pi-coding-agent/dist/modes/interactive/interactive-mode.js
 +++ b/node_modules/@mariozechner/pi-coding-agent/dist/modes/interactive/interactive-mode.js
 @@ -452,8 +452,14 @@
@@ -233,7 +316,15 @@
      }
 --- a/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-tui/dist/components/editor.js
 +++ b/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-tui/dist/components/editor.js
-@@ -211,6 +211,10 @@
+@@ -156,6 +156,7 @@
+     maxPrimaryColumnWidth: 32,
+ };
+ const ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS = 20;
++const WORD_COMPLETION_DEBOUNCE_MS = 150;
+ export class Editor {
+     state = {
+         lines: [""],
+@@ -211,6 +212,10 @@
      onSubmit;
      onChange;
      disableSubmit = false;
@@ -244,7 +335,7 @@
      constructor(tui, theme, options = {}) {
          this.tui = tui;
          this.theme = theme;
-@@ -310,12 +314,21 @@
+@@ -310,12 +315,21 @@
          this.setCursorCol(this.state.lines[this.state.cursorLine]?.length || 0);
          // Reset scroll - render() will adjust to show cursor
          this.scrollOffset = 0;
@@ -267,7 +358,7 @@
      }
      render(width) {
          const maxPadding = Math.max(0, Math.floor((width - 1) / 2));
-@@ -498,6 +511,7 @@
+@@ -498,6 +512,7 @@
                      this.state.lines = result.lines;
                      this.state.cursorLine = result.cursorLine;
                      this.setCursorCol(result.cursorCol);
@@ -275,7 +366,7 @@
                      this.cancelAutocomplete();
                      if (this.onChange)
                          this.onChange(this.getText());
-@@ -513,6 +527,7 @@
+@@ -513,6 +528,7 @@
                      this.state.lines = result.lines;
                      this.state.cursorLine = result.cursorLine;
                      this.setCursorCol(result.cursorCol);
@@ -283,7 +374,7 @@
                      if (this.autocompletePrefix.startsWith("/")) {
                          this.cancelAutocomplete();
                          // Fall through to submit
-@@ -684,6 +699,13 @@
+@@ -684,6 +700,13 @@
          }
      }
      layoutText(contentWidth) {
@@ -297,7 +388,7 @@
          const layoutLines = [];
          if (this.state.lines.length === 0 || (this.state.lines.length === 1 && this.state.lines[0] === "")) {
              // Empty editor
-@@ -764,6 +786,9 @@
+@@ -764,6 +787,9 @@
                  }
              }
          }
@@ -307,7 +398,7 @@
          return layoutLines;
      }
      getText() {
-@@ -841,6 +866,7 @@
+@@ -841,6 +867,7 @@
              // Single line - insert at cursor position
              this.state.lines[this.state.cursorLine] = beforeCursor + normalized + afterCursor;
              this.setCursorCol(this.state.cursorCol + normalized.length);
@@ -315,7 +406,7 @@
          }
          else {
              // Multi-line insertion
-@@ -858,6 +884,7 @@
+@@ -858,6 +885,7 @@
              ];
              this.state.cursorLine += insertedLines.length - 1;
              this.setCursorCol((insertedLines[insertedLines.length - 1] || "").length);
@@ -323,7 +414,7 @@
          }
          if (this.onChange) {
              this.onChange(this.getText());
-@@ -882,6 +909,7 @@
+@@ -882,6 +910,7 @@
          const after = line.slice(this.state.cursorCol);
          this.state.lines[this.state.cursorLine] = before + char + after;
          this.setCursorCol(this.state.cursorCol + char.length);
@@ -331,7 +422,7 @@
          if (this.onChange) {
              this.onChange(this.getText());
          }
-@@ -990,6 +1018,7 @@
+@@ -990,6 +1019,7 @@
          // Move cursor to start of new line
          this.state.cursorLine++;
          this.setCursorCol(0);
@@ -339,7 +430,7 @@
          if (this.onChange) {
              this.onChange(this.getText());
          }
-@@ -1016,6 +1045,7 @@
+@@ -1016,6 +1046,7 @@
          this.scrollOffset = 0;
          this.undoStack.clear();
          this.lastAction = null;
@@ -347,7 +438,7 @@
          if (this.onChange)
              this.onChange("");
          if (this.onSubmit)
-@@ -1037,6 +1067,7 @@
+@@ -1037,6 +1068,7 @@
              const after = line.slice(this.state.cursorCol);
              this.state.lines[this.state.cursorLine] = before + after;
              this.setCursorCol(this.state.cursorCol - graphemeLength);
@@ -355,7 +446,7 @@
          }
          else if (this.state.cursorLine > 0) {
              this.pushUndoSnapshot();
-@@ -1047,6 +1078,7 @@
+@@ -1047,6 +1079,7 @@
              this.state.lines.splice(this.state.cursorLine, 1);
              this.state.cursorLine--;
              this.setCursorCol(previousLine.length);
@@ -363,7 +454,7 @@
          }
          if (this.onChange) {
              this.onChange(this.getText());
-@@ -1215,6 +1247,7 @@
+@@ -1215,6 +1248,7 @@
              // Delete from start of line up to cursor
              this.state.lines[this.state.cursorLine] = currentLine.slice(this.state.cursorCol);
              this.setCursorCol(0);
@@ -371,7 +462,7 @@
          }
          else if (this.state.cursorLine > 0) {
              this.pushUndoSnapshot();
-@@ -1226,6 +1259,7 @@
+@@ -1226,6 +1260,7 @@
              this.state.lines.splice(this.state.cursorLine, 1);
              this.state.cursorLine--;
              this.setCursorCol(previousLine.length);
@@ -379,7 +470,7 @@
          }
          if (this.onChange) {
              this.onChange(this.getText());
-@@ -1242,6 +1276,7 @@
+@@ -1242,6 +1277,7 @@
              this.lastAction = "kill";
              // Delete from cursor to end of line
              this.state.lines[this.state.cursorLine] = currentLine.slice(0, this.state.cursorCol);
@@ -387,7 +478,7 @@
          }
          else if (this.state.cursorLine < this.state.lines.length - 1) {
              this.pushUndoSnapshot();
-@@ -1251,6 +1286,7 @@
+@@ -1251,6 +1287,7 @@
              const nextLine = this.state.lines[this.state.cursorLine + 1] || "";
              this.state.lines[this.state.cursorLine] = currentLine + nextLine;
              this.state.lines.splice(this.state.cursorLine + 1, 1);
@@ -395,7 +486,7 @@
          }
          if (this.onChange) {
              this.onChange(this.getText());
-@@ -1271,6 +1307,7 @@
+@@ -1271,6 +1308,7 @@
                  this.state.lines.splice(this.state.cursorLine, 1);
                  this.state.cursorLine--;
                  this.setCursorCol(previousLine.length);
@@ -403,7 +494,7 @@
              }
          }
          else {
-@@ -1287,6 +1324,7 @@
+@@ -1287,6 +1325,7 @@
              this.state.lines[this.state.cursorLine] =
                  currentLine.slice(0, deleteFrom) + currentLine.slice(this.state.cursorCol);
              this.setCursorCol(deleteFrom);
@@ -411,7 +502,7 @@
          }
          if (this.onChange) {
              this.onChange(this.getText());
-@@ -1305,6 +1343,7 @@
+@@ -1305,6 +1344,7 @@
                  const nextLine = this.state.lines[this.state.cursorLine + 1] || "";
                  this.state.lines[this.state.cursorLine] = currentLine + nextLine;
                  this.state.lines.splice(this.state.cursorLine + 1, 1);
@@ -419,7 +510,7 @@
              }
          }
          else {
-@@ -1320,6 +1359,7 @@
+@@ -1320,6 +1360,7 @@
              this.lastAction = "kill";
              this.state.lines[this.state.cursorLine] =
                  currentLine.slice(0, this.state.cursorCol) + currentLine.slice(deleteTo);
@@ -427,7 +518,7 @@
          }
          if (this.onChange) {
              this.onChange(this.getText());
-@@ -1340,6 +1380,7 @@
+@@ -1340,6 +1381,7 @@
              const before = currentLine.slice(0, this.state.cursorCol);
              const after = currentLine.slice(this.state.cursorCol + graphemeLength);
              this.state.lines[this.state.cursorLine] = before + after;
@@ -435,7 +526,7 @@
          }
          else if (this.state.cursorLine < this.state.lines.length - 1) {
              this.pushUndoSnapshot();
-@@ -1347,6 +1388,7 @@
+@@ -1347,6 +1389,7 @@
              const nextLine = this.state.lines[this.state.cursorLine + 1] || "";
              this.state.lines[this.state.cursorLine] = currentLine + nextLine;
              this.state.lines.splice(this.state.cursorLine + 1, 1);
@@ -443,7 +534,7 @@
          }
          if (this.onChange) {
              this.onChange(this.getText());
-@@ -1376,6 +1418,13 @@
+@@ -1376,6 +1419,13 @@
       * - length: length of this visual line segment
       */
      buildVisualLineMap(width) {
@@ -457,7 +548,7 @@
          const visualLines = [];
          for (let i = 0; i < this.state.lines.length; i++) {
              const line = this.state.lines[i] || "";
-@@ -1399,6 +1448,9 @@
+@@ -1399,6 +1449,9 @@
                  }
              }
          }
@@ -467,7 +558,7 @@
          return visualLines;
      }
      /**
-@@ -1577,6 +1629,7 @@
+@@ -1577,6 +1630,7 @@
              const after = currentLine.slice(this.state.cursorCol);
              this.state.lines[this.state.cursorLine] = before + text + after;
              this.setCursorCol(this.state.cursorCol + text.length);
@@ -475,7 +566,7 @@
          }
          else {
              // Multi-line insert
-@@ -1595,6 +1648,7 @@
+@@ -1595,6 +1649,7 @@
              // Update cursor position
              this.state.cursorLine = lastLineIndex;
              this.setCursorCol((lines[lines.length - 1] || "").length);
@@ -483,7 +574,7 @@
          }
          if (this.onChange) {
              this.onChange(this.getText());
-@@ -1617,6 +1671,7 @@
+@@ -1617,6 +1672,7 @@
              const after = currentLine.slice(this.state.cursorCol);
              this.state.lines[this.state.cursorLine] = before + after;
              this.setCursorCol(this.state.cursorCol - deleteLen);
@@ -491,7 +582,7 @@
          }
          else {
              // Multi-line delete - cursor is at end of last yanked line
-@@ -1631,6 +1686,7 @@
+@@ -1631,6 +1687,7 @@
              // Update cursor
              this.state.cursorLine = startLine;
              this.setCursorCol(startCol);
@@ -499,7 +590,7 @@
          }
          if (this.onChange) {
              this.onChange(this.getText());
-@@ -1647,6 +1703,7 @@
+@@ -1647,6 +1704,7 @@
          Object.assign(this.state, snapshot);
          this.lastAction = null;
          this.preferredVisualCol = null;
@@ -507,14 +598,6 @@
          if (this.onChange) {
              this.onChange(this.getText());
          }
-@@ -156,6 +156,7 @@
-     maxPrimaryColumnWidth: 32,
- };
- const ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS = 20;
-+const WORD_COMPLETION_DEBOUNCE_MS = 150;
- export class Editor {
-     state = {
-         lines: [""],
 @@ -1838,8 +1896,28 @@
          }
          const currentLine = this.state.lines[this.state.cursorLine] || "";

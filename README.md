@@ -16,6 +16,8 @@ This repository stores patches for [@mariozechner/pi-coding-agent](https://www.n
 - Defers interactive startup provider-count updates so the UI can paint sooner without blocking on footer metadata
 - Defers initial message rendering to next tick, allowing UI to paint before loading chat history
 - Caches editor layout and visual line maps to reduce cursor-move and redraw cost
+- Caches the system prompt in AgentSession to avoid re-merging skills/tools/context on every send
+- Tiered autocomplete debounce: 0ms for Tab/first-trigger chars, 150ms for mid-word typing
 - Increases autocomplete debounce for regular character-by-character typing (150ms) while keeping immediate response for explicit triggers (Tab, first slash /, first @ or # symbols)
 
 **Why:** Improves startup performance and memory efficiency when loading sessions with many messages, preventing excessive memory accumulation and UI blocking during startup.
