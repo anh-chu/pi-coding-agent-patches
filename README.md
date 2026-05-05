@@ -6,15 +6,17 @@ This repository stores patches for [@mariozechner/pi-coding-agent](https://www.n
 
 ### @mariozechner+pi-coding-agent+0.73.0.patch
 
-**Purpose:** Adds concurrency-limited async mapping utility and optimizes session message previews.
+**Purpose:** Performance optimizations for startup and session loading.
 
 **Changes:**
 - Introduces `mapWithConcurrency()` utility function to process arrays with a concurrency limit while preserving order
 - Optimizes `buildSessionInfo()` to avoid unbounded string arrays when collecting message previews; now caps preview text at 4KB
 - Updates two session loading methods to use the new concurrent processing utility with a concurrency limit of 8
+- Adds resolve caching in DefaultPackageManager to avoid rescanning skills/prompts/themes/extensions on repeated calls
 - Defers interactive startup provider-count updates so the UI can paint sooner without blocking on footer metadata
+- Defers initial message rendering to next tick, allowing UI to paint before loading chat history
 
-**Why:** Improves performance and memory efficiency when loading sessions with many messages, preventing excessive memory accumulation during parallel file processing.
+**Why:** Improves startup performance and memory efficiency when loading sessions with many messages, preventing excessive memory accumulation and UI blocking during startup.
 
 ## Usage
 

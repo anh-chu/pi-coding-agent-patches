@@ -207,7 +207,23 @@
 -        await this.updateAvailableProviderCount();
 +        void this.updateAvailableProviderCount();
      }
-@@ -1194,7 +1194,7 @@
+@@ -452,8 +452,12 @@
+         // Initialize extensions first so resources are shown before messages
+         await this.rebindCurrentSession();
+-        // Render initial messages AFTER showing loaded resources
+-        this.renderInitialMessages();
++        // Defer initial message render to not block first paint
++        setTimeout(() => {
++            try {
++                this.renderInitialMessages();
++            } catch (error) {
++                console.error('Failed to render initial messages:', error);
++            }
++        }, 0);
+         // Set up theme file watcher
+         onThemeChange(() => {
+             this.ui.invalidate();
+@@ -1194,7 +1198,7 @@
          this.applyRuntimeSettings();
          await this.bindCurrentSessionExtensions();
          this.subscribeToAgent();
