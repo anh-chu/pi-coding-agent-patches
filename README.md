@@ -12,6 +12,7 @@ This repository stores patches for [@mariozechner/pi-coding-agent](https://www.n
 - Introduces `mapWithConcurrency()` utility function to process arrays with a concurrency limit while preserving order
 - Optimizes `buildSessionInfo()` to avoid unbounded string arrays when collecting message previews; now caps preview text at 4KB
 - Updates two session loading methods to use the new concurrent processing utility with a concurrency limit of 8
+- Defers interactive startup provider-count updates so the UI can paint sooner without blocking on footer metadata
 
 **Why:** Improves performance and memory efficiency when loading sessions with many messages, preventing excessive memory accumulation during parallel file processing.
 
