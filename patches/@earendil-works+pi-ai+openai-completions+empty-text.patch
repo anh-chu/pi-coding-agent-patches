@@ -1,0 +1,51 @@
+--- a/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/openai-completions.js
++++ b/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/openai-completions.js
+@@ -594,16 +594,22 @@
+         if (msg.role === "user") {
+             if (typeof msg.content === "string") {
++                // Skip empty string user messages (some providers reject them)
++                if (!msg.content.trim())
++                    continue;
+                 params.push({
+                     role: "user",
+                     content: sanitizeSurrogates(msg.content),
+                 });
+             }
+             else {
+-                const content = msg.content.map((item) => {
++                const content = msg.content.flatMap((item) => {
+                     if (item.type === "text") {
+-                        return {
++                        // Filter empty text blocks (mirrors anthropic.js behavior)
++                        if (!item.text || !item.text.trim())
++                            return [];
++                        return [{
+                             type: "text",
+                             text: sanitizeSurrogates(item.text),
+-                        };
++                        }];
+                     }
+                     else {
+-                        return {
++                        return [{
+                             type: "image_url",
+                             image_url: {
+                                 url: `data:${item.mimeType};base64,${item.data}`,
+                             },
+-                        };
++                        }];
+                     }
+                 });
+                 if (content.length === 0)
+@@ -710,6 +716,12 @@
+             if (!hasContent && !assistantMsg.tool_calls) {
+                 continue;
+             }
++            // Some proxies (e.g. opencode.ai) convert content:null to [{type:"text",text:""}]
++            // before forwarding to strict providers like Kimi that reject empty text blocks.
++            // Use empty string instead of null when tool_calls are present.
++            if (!hasContent && assistantMsg.tool_calls && assistantMsg.content === null) {
++                assistantMsg.content = "";
++            }
+             params.push(assistantMsg);
+         }

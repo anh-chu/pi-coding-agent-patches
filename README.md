@@ -4,6 +4,21 @@ This repository stores patches for [@mariozechner/pi-coding-agent](https://www.n
 
 ## Patches
 
+### @earendil-works+pi-ai+openai-completions+empty-text.patch
+
+**Purpose:** Fix "Invalid request: text content is empty" from strict providers (Kimi k2.6 via opencode-go) when interrupting agent work mid-turn.
+
+**Changes (in `openai-completions.js`):**
+- Filter empty text blocks from user messages with array content (mirrors existing `anthropic.js` behavior)
+- Skip user messages with empty string content
+- When an assistant message has `content: null` combined with `tool_calls`, send `content: ""` instead — the opencode.ai proxy normalizes `null` to `[{type:"text",text:""}]` before forwarding to Kimi, which rejects the empty text block
+
+**Root cause:** Two paths produce empty text content in the request history:
+1. Any custom/extension message with empty string content reaches kimi as `{type:"text",text:""}`
+2. Tool-only assistant turns (model responds immediately with tool calls, no preamble text) have `content: null`; the opencode.ai proxy normalizes this to `[{"type":"text","text":""}]` before sending to kimi
+
+The second path explains why the error specifically appears after interrupting mid-turn: the interrupt exposes the raw tool-only assistant turn in message history on the next send, whereas a completed turn would normally be followed by tool results and another assistant message.
+
 ### @mariozechner+pi-coding-agent+0.73.0.patch
 
 **Purpose:** Performance optimizations for startup, session loading, and editor rendering.

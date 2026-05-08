@@ -1,11 +1,11 @@
---- a/node_modules/@mariozechner/pi-coding-agent/dist/main.js
-+++ b/node_modules/@mariozechner/pi-coding-agent/dist/main.js
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/main.js
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/main.js
 @@ -7,7 +7,7 @@
  import { resolve } from "node:path";
  import { createInterface } from "node:readline";
- import { modelsAreEqual } from "@mariozechner/pi-ai";
--import { ProcessTerminal, setKeybindings, TUI } from "@mariozechner/pi-tui";
-+import { ProcessTerminal, setKeybindings, Text, TUI } from "@mariozechner/pi-tui";
+ import { modelsAreEqual } from "@earendil-works/pi-ai";
+-import { ProcessTerminal, setKeybindings, TUI } from "@earendil-works/pi-tui";
++import { ProcessTerminal, setKeybindings, Text, TUI } from "@earendil-works/pi-tui";
  import chalk from "chalk";
  import { parseArgs, printHelp } from "./cli/args.js";
  import { processFileArguments } from "./cli/file-processor.js";
@@ -66,8 +66,8 @@
      if (startupBenchmark && appMode !== "interactive") {
          console.error(chalk.red("Error: PI_STARTUP_BENCHMARK only supports interactive mode"));
          process.exit(1);
---- a/node_modules/@mariozechner/pi-coding-agent/dist/core/session-manager.js
-+++ b/node_modules/@mariozechner/pi-coding-agent/dist/core/session-manager.js
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js
 @@ -9,6 +9,26 @@
  function createSessionId() {
      return uuidv7();
@@ -166,8 +166,8 @@
              for (const info of results) {
                  if (info) {
                      sessions.push(info);
---- a/node_modules/@mariozechner/pi-coding-agent/dist/core/package-manager.js
-+++ b/node_modules/@mariozechner/pi-coding-agent/dist/core/package-manager.js
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/core/package-manager.js
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/package-manager.js
 @@ -577,6 +577,8 @@
      globalNpmRoot;
      globalNpmRootCommandKey;
@@ -262,8 +262,8 @@
      }
      async shouldUpdateNpmSource(source, scope) {
          const installedPath = this.getNpmInstallPath(source, scope);
---- a/node_modules/@mariozechner/pi-coding-agent/dist/core/agent-session.js
-+++ b/node_modules/@mariozechner/pi-coding-agent/dist/core/agent-session.js
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js
 @@ -112,6 +112,9 @@
      // Base system prompt (without extension appends) - used to apply fresh appends each turn
      _baseSystemPrompt = "";
@@ -345,8 +345,8 @@
          this._resourceLoader.extendResources(extensionPaths);
          this._baseSystemPrompt = this._rebuildSystemPrompt(this.getActiveToolNames());
          this.agent.state.systemPrompt = this._baseSystemPrompt;
---- a/node_modules/@mariozechner/pi-coding-agent/dist/core/extensions/loader.js
-+++ b/node_modules/@mariozechner/pi-coding-agent/dist/core/extensions/loader.js
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js
 @@ -268,15 +268,24 @@
      };
      return api;
@@ -437,8 +437,8 @@
      return {
          extensions,
          errors,
---- a/node_modules/@mariozechner/pi-coding-agent/dist/modes/interactive/interactive-mode.js
-+++ b/node_modules/@mariozechner/pi-coding-agent/dist/modes/interactive/interactive-mode.js
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/interactive-mode.js
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/interactive-mode.js
 @@ -452,8 +452,14 @@
          this.isInitialized = true;
          // Initialize extensions first so resources are shown before messages
@@ -474,8 +474,8 @@
          this.updateEditorBorderColor();
          this.updateTerminalTitle();
      }
---- a/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-tui/dist/components/editor.js
-+++ b/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-tui/dist/components/editor.js
+--- a/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist/components/editor.js
++++ b/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist/components/editor.js
 @@ -156,6 +156,7 @@
      maxPrimaryColumnWidth: 32,
  };
