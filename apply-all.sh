@@ -2,25 +2,30 @@
 set -euo pipefail
 
 PATCHES_DIR="$(cd "$(dirname "$0")/patches" && pwd)"
-PI_ROOT="$(npm root -g)"
+# npm root -g returns .../lib/node_modules; patches reference node_modules/... so
+# we need the parent (.../lib/) as the working directory for patch -p1.
+PI_ROOT="$(dirname "$(npm root -g)")"
 
-if [ ! -d "$PI_ROOT/@earendil-works/pi-coding-agent" ]; then
-  echo "Error: @earendil-works/pi-coding-agent not found at $PI_ROOT"
+if [ ! -d "$PI_ROOT/node_modules/@earendil-works/pi-coding-agent" ]; then
+  echo "Error: @earendil-works/pi-coding-agent not found at $PI_ROOT/node_modules"
   echo "Make sure the correct Node version is active (fnm/nvm users: check 'node --version')."
   exit 1
 fi
 
-echo "Applying patches to: $PI_ROOT"
+echo "Applying patches to: $PI_ROOT/node_modules"
 echo
 
 apply() {
   local patch="$PATCHES_DIR/$1"
   echo "  Applying $1 ..."
   if patch -p1 --dry-run -d "$PI_ROOT" < "$patch" &>/dev/null; then
-    patch -p1 -d "$PI_ROOT" < "$patch"
-    echo "  ✓ done"
+    patch -p1 -d "$PI_ROOT" < "$patch" --no-backup-if-mismatch
+    echo "  ✓ applied"
+  elif patch -p1 --dry-run -R -d "$PI_ROOT" < "$patch" &>/dev/null; then
+    echo "  ↩ already applied — skipping"
   else
-    echo "  ✗ dry-run failed (already applied or version mismatch — skipping)"
+    echo "  ✗ version mismatch — skipping"
+    patch -p1 --dry-run -d "$PI_ROOT" < "$patch" 2>&1 | grep -E 'FAILED|offset|can.t find|Hunk' | sed 's/^/     /' || true
   fi
   echo
 }

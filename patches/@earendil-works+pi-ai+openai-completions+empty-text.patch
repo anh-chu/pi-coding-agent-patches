@@ -1,6 +1,7 @@
 --- a/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/openai-completions.js
 +++ b/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/openai-completions.js
-@@ -594,16 +594,22 @@
+@@ -593,26 +593,32 @@
+         }
          if (msg.role === "user") {
              if (typeof msg.content === "string") {
 +                // Skip empty string user messages (some providers reject them)
@@ -37,7 +38,7 @@
                      }
                  });
                  if (content.length === 0)
-@@ -710,6 +716,12 @@
+@@ -713,6 +719,12 @@
              if (!hasContent && !assistantMsg.tool_calls) {
                  continue;
              }
@@ -49,3 +50,4 @@
 +            }
              params.push(assistantMsg);
          }
+         else if (msg.role === "toolResult") {
