@@ -68,6 +68,14 @@ Fixes `tool_use.id: String should match pattern '^[a-zA-Z0-9_-]+$'` when switchi
 - Tool call ID normalization in `anthropic.js` runs at two levels: `transformMessages` (cross-model detection) and now also at payload build time (safety net)
 - Patches to pi-ai sub-package must target the NESTED path inside pi-coding-agent's own `node_modules`, not any global pi-ai install
 
+### Extra-usage retry fix (`@earendil-works+pi-coding-agent+0.74.0+extra-usage-retry.patch`)
+
+Targets `dist/core/agent-session.js`.
+
+Fixes orchestrator going silent after subagent notifications hit the CC extra-usage cap. Pi's `_isRetryableError()` regex did not match `"You're out of extra usage..."`, so the error was classified as non-retryable. The failed turn was rewound, the notification was dropped, and the orchestrator waited indefinitely for user input.
+
+Adds `extra.?usage` to the retryable pattern. The errors are transient (CC extra-usage pool recovers within minutes), so the existing exponential-backoff retry path handles them correctly.
+
 ### Duplicate user message fix (`@earendil-works+pi-coding-agent+issue-4197+dedup-next-turn.patch`)
 
 Targets `node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js`.
