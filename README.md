@@ -4,6 +4,17 @@ This repository stores patches for [@mariozechner/pi-coding-agent](https://www.n
 
 ## Patches
 
+### @earendil-works+pi-ai+anthropic+normalize-tool-id.patch
+
+**Purpose:** Fix `tool_use.id: String should match pattern '^[a-zA-Z0-9_-]+$'` when switching from a non-Anthropic model (e.g. kimi via opencode-go) to Claude mid-conversation.
+
+**Changes (in `anthropic.js`):**
+- `normalizeToolCallId` now handles empty/null input (returns `"tool_call_0"` fallback) and guards against all-invalid-char IDs
+- `tool_use.id` in assistant message blocks is now always passed through `normalizeToolCallId` at formatting time
+- `tool_use_id` in all tool result blocks is also sanitized at formatting time
+
+**Why:** `transformMessages` normalizes tool call IDs for cross-provider replays, but normalization was only applied when `!isSameModel` and the function was only called indirectly. If the stored ID was empty (aborted stream) or contained chars outside `[a-zA-Z0-9_-]`, Anthropic rejected the request. Applying normalization at the point where the API payload is built ensures Anthropic always receives valid IDs regardless of source.
+
 ### @earendil-works+pi-ai+openai-completions+empty-text.patch
 
 **Purpose:** Fix "Invalid request: text content is empty" from strict providers (Kimi k2.6 via opencode-go) when interrupting agent work mid-turn.
