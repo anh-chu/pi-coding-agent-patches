@@ -1,6 +1,31 @@
 # pi-coding-agent Patches
 
-This repository stores patches for [@earendil-works/pi-coding-agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) to address specific issues or add optimizations.
+Patches for the globally installed [@earendil-works/pi-coding-agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent). Applied directly to installed files — no build step, no project dependency.
+
+## Quick start
+
+Clone and apply all patches in one go:
+
+```bash
+git clone https://github.com/anh-chu/pi-coding-agent-patches
+cd pi-coding-agent-patches
+bash apply-all.sh
+```
+
+Or apply a single patch manually:
+
+```bash
+# 1. Find your global npm root (where pi is installed)
+PI_ROOT=$(npm root -g)
+
+# 2. Dry-run first
+patch -p1 --dry-run -d "$PI_ROOT" < patches/<patch-name>.patch
+
+# 3. Apply
+patch -p1 -d "$PI_ROOT" < patches/<patch-name>.patch
+```
+
+> If you use **fnm** or **nvm**, make sure the right Node version is active before running `npm root -g` so it resolves to the version where pi is installed.
 
 ## Patches
 
@@ -53,32 +78,9 @@ The second path explains why the error specifically appears after interrupting m
 
 **Why:** Improves startup performance and memory efficiency when loading sessions with many messages, preventing excessive memory accumulation and UI blocking during startup.
 
-## Usage
+## Notes
 
-To apply this patch to a consuming project:
-
-1. Install patch-package if not already installed:
-   ```bash
-   npm install --save-dev patch-package
-   ```
-
-2. Copy the patch file to your project's `patches/` directory:
-   ```bash
-   cp patches/@mariozechner+pi-coding-agent+0.73.0.patch YOUR_PROJECT/patches/
-   ```
-
-3. Apply the patch:
-   ```bash
-   npx patch-package @earendil-works/pi-coding-agent
-   ```
-
-4. Add or update the postinstall script in your `package.json`:
-   ```json
-   {
-     "scripts": {
-       "postinstall": "patch-package"
-     }
-   }
-   ```
-
-This ensures the patch is automatically applied whenever dependencies are reinstalled.
+- Patches target the **global install** of `@earendil-works/pi-coding-agent`, not a project `node_modules`.
+- Patches to `pi-ai` target the copy bundled *inside* pi at `node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/`.
+- After a `pi update --self`, re-run `apply-all.sh` — the update replaces the installed files.
+- Tested on v0.74.0. On other versions do a dry-run first to check for offsets.
