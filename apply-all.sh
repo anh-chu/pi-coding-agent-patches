@@ -12,7 +12,15 @@ if [ ! -d "$PI_ROOT/node_modules/@earendil-works/pi-coding-agent" ]; then
   exit 1
 fi
 
+TARGET_VERSION="0.74.0"
+INSTALLED_VERSION=$(node -e "console.log(require('$PI_ROOT/node_modules/@earendil-works/pi-coding-agent/package.json').version)")
+
 echo "Applying patches to: $PI_ROOT/node_modules"
+echo "Installed version:   $INSTALLED_VERSION (patches target $TARGET_VERSION)"
+if [ "$INSTALLED_VERSION" != "$TARGET_VERSION" ]; then
+  echo "Warning: version mismatch. Patches may not apply cleanly."
+fi
+echo
 echo
 
 apply() {
