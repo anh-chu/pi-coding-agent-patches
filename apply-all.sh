@@ -50,4 +50,7 @@ apply "@earendil-works+pi-ai+anthropic+normalize-tool-id.patch"
 # Bug fix: duplicate user messages in print mode / subagent dispatch (#4197)
 apply "@earendil-works+pi-coding-agent+issue-4197+dedup-next-turn.patch"
 
+# Bug fix: orchestrator silent after subagent notifications hit CC extra-usage cap
+apply "@earendil-works+pi-coding-agent+0.74.0+extra-usage-retry.patch"
+
 echo "All done."

@@ -15,13 +15,14 @@ bash apply-all.sh
 Or apply a single patch manually:
 
 ```bash
-# 1. Find your global npm root (where pi is installed)
-PI_ROOT=$(npm root -g)
+# npm root -g returns .../lib/node_modules; patches reference node_modules/...
+# so use the parent directory as the working directory for patch -p1.
+PI_ROOT=$(dirname $(npm root -g))
 
-# 2. Dry-run first
+# Dry-run first
 patch -p1 --dry-run -d "$PI_ROOT" < patches/<patch-name>.patch
 
-# 3. Apply
+# Apply
 patch -p1 -d "$PI_ROOT" < patches/<patch-name>.patch
 ```
 
@@ -77,6 +78,15 @@ The second path explains why the error specifically appears after interrupting m
 - Shows a minimal startup splash TUI before runtime/resource loading so the terminal responds immediately
 
 **Why:** Improves startup performance and memory efficiency when loading sessions with many messages, preventing excessive memory accumulation and UI blocking during startup.
+
+### @earendil-works+pi-coding-agent+0.74.0+extra-usage-retry.patch
+
+**Purpose:** Fix orchestrator going silent after subagent notifications when the CC extra-usage cap is hit.
+
+**Changes (in `agent-session.js`):**
+- Adds `extra.?usage` to the `_isRetryableError()` regex
+
+**Root cause:** When parallel subagents complete and inject notifications back into the orchestrator session, the triggered LLM turn can hit Anthropic's transient CC extra-usage cap. Pi's retryable error regex did not match `"You're out of extra usage..."`, so the error was classified as permanent. The failed turn was rewound, the notification was dropped, and the orchestrator waited indefinitely for user input. The errors are transient (the extra-usage pool recovers within minutes), so adding the pattern lets the existing exponential-backoff retry path handle them without any user intervention.
 
 ## Notes
 
