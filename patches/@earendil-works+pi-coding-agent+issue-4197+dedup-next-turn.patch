@@ -1,0 +1,22 @@
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js
+@@ -813,9 +813,18 @@
+-            // Inject any pending "nextTurn" messages as context alongside the user message
+-            for (const msg of this._pendingNextTurnMessages) {
+-                messages.push(msg);
+-            }
+-            this._pendingNextTurnMessages = [];
++            // Inject any pending "nextTurn" messages as context alongside the user message.
++            // Skip messages whose text content is identical to expandedText — these are duplicates
++            // produced when an extension echoes the user input via sendCustomMessage (see #4197).
++            for (const msg of this._pendingNextTurnMessages) {
++                const msgText = typeof msg.content === "string"
++                    ? msg.content
++                    : Array.isArray(msg.content)
++                        ? msg.content.filter((b) => b.type === "text").map((b) => b.text).join("")
++                        : "";
++                if (msgText === expandedText)
++                    continue;
++                messages.push(msg);
++            }
++            this._pendingNextTurnMessages = [];

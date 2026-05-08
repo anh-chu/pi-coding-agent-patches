@@ -68,6 +68,16 @@ Fixes `tool_use.id: String should match pattern '^[a-zA-Z0-9_-]+$'` when switchi
 - Tool call ID normalization in `anthropic.js` runs at two levels: `transformMessages` (cross-model detection) and now also at payload build time (safety net)
 - Patches to pi-ai sub-package must target the NESTED path inside pi-coding-agent's own `node_modules`, not any global pi-ai install
 
+### Duplicate user message fix (`@earendil-works+pi-coding-agent+issue-4197+dedup-next-turn.patch`)
+
+Targets `node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js`.
+
+Fixes #4197: `pi -p "task"` (and subagent dispatch) sends two identical consecutive user messages to the LLM — one from `prompt()` and one from `_pendingNextTurnMessages` — wasting tokens and confusing the model.
+
+**Root cause:** `custom`-role messages in `_pendingNextTurnMessages` become `role:"user"` after `convertToLlm`. When an extension echoes the user input into `_pendingNextTurnMessages` (via `sendCustomMessage` with `deliverAs:"nextTurn"`), the drain loop in `prompt()` pushes an identical second user message. Since custom messages convert to user messages in the API payload, the LLM sees the task twice.
+
+**Fix:** When draining `_pendingNextTurnMessages`, skip any entry whose text content matches `expandedText` (the message already added as the user turn).
+
 ## Adding a new patch
 
 1. Edit the installed file directly
