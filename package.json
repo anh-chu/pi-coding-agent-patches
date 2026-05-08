@@ -1,7 +1,7 @@
 {
   "name": "pi-coding-agent-patches",
   "version": "1.0.0",
-  "description": "Patches for @mariozechner/pi-coding-agent to improve concurrency and memory efficiency",
+  "description": "Patches for @earendil-works/pi-coding-agent to improve concurrency, memory efficiency, and cross-provider compatibility",
   "repository": {
     "type": "git",
     "url": "https://github.com/yourusername/pi-coding-agent-patches.git"
@@ -16,5 +16,8 @@
   "private": true,
   "devDependencies": {
     "patch-package": "^8.0.1"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.74.0"
   }
 }

@@ -1,6 +1,6 @@
 # pi-coding-agent Patches
 
-This repository stores patches for [@mariozechner/pi-coding-agent](https://www.npmjs.com/package/@mariozechner/pi-coding-agent) to address specific issues or add optimizations.
+This repository stores patches for [@earendil-works/pi-coding-agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) to address specific issues or add optimizations.
 
 ## Patches
 
@@ -30,7 +30,7 @@ This repository stores patches for [@mariozechner/pi-coding-agent](https://www.n
 
 The second path explains why the error specifically appears after interrupting mid-turn: the interrupt exposes the raw tool-only assistant turn in message history on the next send, whereas a completed turn would normally be followed by tool results and another assistant message.
 
-### @mariozechner+pi-coding-agent+0.73.0.patch
+### @earendil-works+pi-coding-agent+0.73.0.patch (filename kept for patch-package compat)
 
 **Purpose:** Performance optimizations for startup, session loading, and editor rendering.
 
@@ -69,7 +69,7 @@ To apply this patch to a consuming project:
 
 3. Apply the patch:
    ```bash
-   npx patch-package @mariozechner/pi-coding-agent
+   npx patch-package @earendil-works/pi-coding-agent
    ```
 
 4. Add or update the postinstall script in your `package.json`:
