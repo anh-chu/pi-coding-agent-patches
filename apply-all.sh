@@ -56,4 +56,7 @@ apply "@earendil-works+pi-coding-agent+0.74.0+extra-usage-retry.patch"
 # Bug fix: tool_use ids without tool_result blocks in long conversations (recurring 400)
 apply "@earendil-works+pi-ai+anthropic+orphaned-tool-use-repair.patch"
 
+# Bug fix: Bad control character in JSON crashes SSE stream, causing 400 loop
+apply "@earendil-works+pi-ai+json-parse+control-char-repair.patch"
+
 echo "All done."

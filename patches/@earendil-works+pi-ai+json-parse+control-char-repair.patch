@@ -1,0 +1,29 @@
+--- a/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/utils/json-parse.js
++++ b/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/utils/json-parse.js
+@@ -73,9 +73,25 @@
+         return JSON.parse(json);
+     }
+     catch (error) {
++        // First attempt: structural repair (escapes control chars inside strings,
++        // fixes bad escape sequences)
+         const repairedJson = repairJson(json);
+         if (repairedJson !== json) {
+-            return JSON.parse(repairedJson);
++            try {
++                return JSON.parse(repairedJson);
++            }
++            catch {}
++        }
++        // Second attempt: brute-force escape all bare control chars (excl. \t \n \r).
++        // repairJson's inString tracking can fail when the value contains unescaped
++        // inner quotes (e.g. code in edit.newText), leaving the control char exposed.
++        // This catches ANSI escape codes and other stray control chars from model output.
++        const sanitized = json.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, (m) => '\\u' + m.codePointAt(0).toString(16).padStart(4, '0'));
++        if (sanitized !== json) {
++            try {
++                return JSON.parse(sanitized);
++            }
++            catch {}
+         }
+         throw error;
+     }

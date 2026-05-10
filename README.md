@@ -101,6 +101,17 @@ The second path explains why the error specifically appears after interrupting m
 
 **Why sessions get stuck:** When the 400 hits, the failing turn is rewound. On retry, the same broken history is replayed, hitting the same 400 again. The session loops indefinitely (or the agent silently freezes) with no way to proceed.
 
+### @earendil-works+pi-ai+json-parse+control-char-repair.patch
+
+**Purpose:** Fix `Bad control character in string literal in JSON` crashing the SSE stream and triggering the `tool_use` without `tool_result` 400 loop.
+
+**Changes (in `utils/json-parse.js`):**
+- The existing `repairJson` fallback in `parseJsonWithRepair` is now wrapped in `try/catch` so a failed repair attempt doesn't immediately throw
+- Adds a second fallback: brute-force regex replace of all bare control chars (`\x00-\x08`, `\x0b`, `\x0c`, `\x0e-\x1f`) with their `\uXXXX` Unicode escapes, then retries `JSON.parse`
+- Only rethrows the original error if all three attempts fail
+
+**Root cause:** The Anthropic SSE stream delivers tool call arguments as `partial_json` deltas. When the model generates code containing ANSI escape sequences or other control chars (e.g. `\x1b[0m` in `edit.newText`), the raw SSE data line contains a literal control character inside a JSON string. `parseJsonWithRepair` is called on the full SSE event JSON. The first fallback, `repairJson`, correctly tracks string boundaries and escapes control chars — but its tracking breaks when the JSON value also contains unescaped inner quotes (e.g. Go or TypeScript string literals in `newText`). When tracking exits the string early at an unescaped quote, the control char is seen as outside a string and passes through unchanged. `JSON.parse` fails, `repairJson` produces an identical string, so `parseJsonWithRepair` rethrows. The error propagates out of the streaming loop, the assistant message is stored with `stopReason: "error"` and the tool call has `arguments: {}`. On the next turn, the 400 loop starts.
+
 ## Notes
 
 - Patches target the **global install** of `@earendil-works/pi-coding-agent`, not a project `node_modules`.

@@ -86,6 +86,16 @@ Fixes recurring `400 invalid_request_error: tool_use ids were found without tool
 
 **Fix:** A final repair pass runs inside `convertMessages` after the message loop and before `cache_control` processing. It scans `params` for every assistant message containing `tool_use` blocks, computes which IDs are not covered by the immediately following user message, and injects synthetic `tool_result` entries (prepended into the existing next user message if it exists, or as a new standalone user message). This is a deterministic last-resort guard that cannot be defeated by any earlier logic failure.
 
+### JSON control-char repair (`@earendil-works+pi-ai+json-parse+control-char-repair.patch`)
+
+Targets `node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/utils/json-parse.js`.
+
+Fixes `Bad control character in string literal in JSON` crashing the SSE stream and triggering the `tool_use` 400 loop.
+
+**Root cause:** `parseJsonWithRepair` tries `repairJson` as a fallback, but `repairJson`'s `inString` tracking breaks when a JSON string value contains unescaped inner quotes (e.g. code in `edit.newText`). It exits the string early at the unescaped quote, so a control char later in the same value (e.g. `\x1b` ANSI escape) is seen as outside a string and passes through unchanged. The second `JSON.parse` fails and the original error is rethrown, crashing the stream.
+
+**Fix:** Wrap the `repairJson` retry in `try/catch`. Add a second fallback: brute-force replace all bare control chars (`\x00-\x08`, `\x0b`, `\x0c`, `\x0e-\x1f`) with `\uXXXX` escapes and retry. Only rethrow if all three attempts fail.
+
 ### Duplicate user message fix (`@earendil-works+pi-coding-agent+issue-4197+dedup-next-turn.patch`)
 
 Targets `node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js`.
