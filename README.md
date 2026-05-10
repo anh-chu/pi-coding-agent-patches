@@ -88,6 +88,19 @@ The second path explains why the error specifically appears after interrupting m
 
 **Root cause:** When parallel subagents complete and inject notifications back into the orchestrator session, the triggered LLM turn can hit Anthropic's transient CC extra-usage cap. Pi's retryable error regex did not match `"You're out of extra usage..."`, so the error was classified as permanent. The failed turn was rewound, the notification was dropped, and the orchestrator waited indefinitely for user input. The errors are transient (the extra-usage pool recovers within minutes), so adding the pattern lets the existing exponential-backoff retry path handle them without any user intervention.
 
+### @earendil-works+pi-ai+anthropic+orphaned-tool-use-repair.patch
+
+**Purpose:** Fix recurring `400 invalid_request_error: tool_use ids were found without tool_result blocks immediately after` in long conversations.
+
+**Changes (in `anthropic.js`):**
+- Adds a final repair pass inside `convertMessages()` that runs after the main message loop and before `cache_control` processing
+- The pass scans the final `params` array for every assistant message with `tool_use` blocks, checks which IDs are not covered by the immediately following user message, and injects synthetic `tool_result` entries for the orphans
+- Orphaned results are prepended into the existing next user message if it has array content, or inserted as a standalone user message otherwise
+
+**Root cause:** `transformMessages` inserts synthetic `tool_result` messages for orphaned tool calls via a `pendingToolCalls` tracker — but it has gaps. Aborted assistant messages are skipped (via `continue`) after `insertSyntheticToolResults()` runs but before their tool calls update `pendingToolCalls`, so an aborted message's own tool calls are never tracked. Cross-model ID normalization collisions can also leave IDs uncovered. Any of these gaps produce an assistant message in the converted `params` with a `tool_use` block and no following `tool_result`, which Anthropic rejects with a 400. The fix is a deterministic last-resort guard: it cannot be defeated by any earlier logic failure because it operates directly on the final API payload.
+
+**Why sessions get stuck:** When the 400 hits, the failing turn is rewound. On retry, the same broken history is replayed, hitting the same 400 again. The session loops indefinitely (or the agent silently freezes) with no way to proceed.
+
 ## Notes
 
 - Patches target the **global install** of `@earendil-works/pi-coding-agent`, not a project `node_modules`.

@@ -53,4 +53,7 @@ apply "@earendil-works+pi-coding-agent+issue-4197+dedup-next-turn.patch"
 # Bug fix: orchestrator silent after subagent notifications hit CC extra-usage cap
 apply "@earendil-works+pi-coding-agent+0.74.0+extra-usage-retry.patch"
 
+# Bug fix: tool_use ids without tool_result blocks in long conversations (recurring 400)
+apply "@earendil-works+pi-ai+anthropic+orphaned-tool-use-repair.patch"
+
 echo "All done."

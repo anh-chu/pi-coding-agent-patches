@@ -1,6 +1,7 @@
 --- a/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/anthropic.js
 +++ b/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/anthropic.js
-@@ -885,6 +885,47 @@ function convertMessages(messages, model, isOAuthToken, cacheControl) {
+@@ -885,6 +885,48 @@
+             });
          }
      }
 +    // Safety-net: inject synthetic tool_results for any orphaned tool_use blocks.
@@ -46,3 +47,5 @@
 +    params.length = 0;
 +    params.push(...repairedParams);
      // Add cache_control to the last user message to cache conversation history
+     if (cacheControl && params.length > 0) {
+         const lastMessage = params[params.length - 1];
