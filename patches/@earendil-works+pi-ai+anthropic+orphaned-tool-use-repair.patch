@@ -1,0 +1,48 @@
+--- a/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/anthropic.js
++++ b/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/anthropic.js
+@@ -885,6 +885,47 @@ function convertMessages(messages, model, isOAuthToken, cacheControl) {
+         }
+     }
++    // Safety-net: inject synthetic tool_results for any orphaned tool_use blocks.
++    // transformMessages should handle this, but this final pass catches edge cases from
++    // aborted turns, ID mismatches, cross-model switches, and any other gaps.
++    const repairedParams = [];
++    for (let k = 0; k < params.length; k++) {
++        const cur = params[k];
++        if (cur.role === "assistant" && Array.isArray(cur.content)) {
++            const toolUseBlocks = cur.content.filter((b) => b.type === "tool_use");
++            if (toolUseBlocks.length > 0) {
++                repairedParams.push(cur);
++                const nxt = params[k + 1];
++                const covered = new Set();
++                if (nxt && nxt.role === "user" && Array.isArray(nxt.content)) {
++                    for (const b of nxt.content) {
++                        if (b.type === "tool_result")
++                            covered.add(b.tool_use_id);
++                    }
++                }
++                const orphans = toolUseBlocks.map((b) => b.id).filter((id) => !covered.has(id));
++                if (orphans.length > 0) {
++                    const synthBlocks = orphans.map((id) => ({
++                        type: "tool_result",
++                        tool_use_id: id,
++                        content: [{ type: "text", text: "No result provided" }],
++                        is_error: true,
++                    }));
++                    if (nxt && nxt.role === "user" && Array.isArray(nxt.content)) {
++                        // Prepend synthetic results into the existing next user message
++                        repairedParams.push({ ...nxt, content: [...synthBlocks, ...nxt.content] });
++                        k++;
++                    }
++                    else {
++                        repairedParams.push({ role: "user", content: synthBlocks });
++                    }
++                }
++                continue;
++            }
++        }
++        repairedParams.push(cur);
++    }
++    params.length = 0;
++    params.push(...repairedParams);
+     // Add cache_control to the last user message to cache conversation history

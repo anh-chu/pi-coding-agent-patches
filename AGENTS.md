@@ -76,6 +76,16 @@ Fixes orchestrator going silent after subagent notifications hit the CC extra-us
 
 Adds `extra.?usage` to the retryable pattern. The errors are transient (CC extra-usage pool recovers within minutes), so the existing exponential-backoff retry path handles them correctly.
 
+### Orphaned tool_use repair (`@earendil-works+pi-ai+anthropic+orphaned-tool-use-repair.patch`)
+
+Targets `node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/anthropic.js`.
+
+Fixes recurring `400 invalid_request_error: tool_use ids were found without tool_result blocks immediately after` from the Anthropic API in long conversations.
+
+**Root cause:** `transformMessages` inserts synthetic `tool_result` messages for orphaned tool calls, but it has gaps. Specifically: aborted assistant messages are skipped before their tool calls update `pendingToolCalls`, cross-model ID normalization collisions can leave IDs uncovered, and any other edge case in the second pass can slip through. When these gaps hit `convertMessages`, the final `params` array sent to Anthropic contains an assistant message with `tool_use` blocks that is NOT followed by matching `tool_result` blocks — causing the 400.
+
+**Fix:** A final repair pass runs inside `convertMessages` after the message loop and before `cache_control` processing. It scans `params` for every assistant message containing `tool_use` blocks, computes which IDs are not covered by the immediately following user message, and injects synthetic `tool_result` entries (prepended into the existing next user message if it exists, or as a new standalone user message). This is a deterministic last-resort guard that cannot be defeated by any earlier logic failure.
+
 ### Duplicate user message fix (`@earendil-works+pi-coding-agent+issue-4197+dedup-next-turn.patch`)
 
 Targets `node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js`.
