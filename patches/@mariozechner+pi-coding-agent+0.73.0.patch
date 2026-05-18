@@ -128,44 +128,6 @@
          };
      }
      catch {
-@@ -397,13 +423,11 @@
-         const dirEntries = await readdir(dir);
-         const files = dirEntries.filter((f) => f.endsWith(".jsonl")).map((f) => join(dir, f));
-         const total = progressTotal ?? files.length;
--        let loaded = 0;
--        const results = await Promise.all(files.map(async (file) => {
--            const info = await buildSessionInfo(file);
--            loaded++;
-+        const results = await mapWithConcurrency(files, async (file) => {
-+            return await buildSessionInfo(file);
-+        }, 8, (loaded) => {
-             onProgress?.(progressOffset + loaded, total);
--            return info;
--        }));
-+        });
-         for (const info of results) {
-             if (info) {
-                 sessions.push(info);
-@@ -1084,15 +1108,13 @@
-                 }
-             }
-             // Process all files with progress tracking
--            let loaded = 0;
-             const sessions = [];
-             const allFiles = dirFiles.flat();
--            const results = await Promise.all(allFiles.map(async (file) => {
--                const info = await buildSessionInfo(file);
--                loaded++;
-+            const results = await mapWithConcurrency(allFiles, async (file) => {
-+                return await buildSessionInfo(file);
-+            }, 8, (loaded) => {
-                 onProgress?.(loaded, totalFiles);
--                return info;
--            }));
-+            });
-             for (const info of results) {
-                 if (info) {
-                     sessions.push(info);
 --- a/node_modules/@earendil-works/pi-coding-agent/dist/core/package-manager.js
 +++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/package-manager.js
 @@ -577,6 +577,8 @@

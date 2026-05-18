@@ -12,7 +12,7 @@ if [ ! -d "$PI_ROOT/node_modules/@earendil-works/pi-coding-agent" ]; then
   exit 1
 fi
 
-TARGET_VERSION="0.74.0"
+TARGET_VERSION="0.75.1"
 INSTALLED_VERSION=$(node -e "console.log(require('$PI_ROOT/node_modules/@earendil-works/pi-coding-agent/package.json').version)")
 
 echo "Applying patches to: $PI_ROOT/node_modules"
