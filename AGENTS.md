@@ -25,7 +25,7 @@ Always do a dry run first:
 patch -p1 --dry-run < patches/<patch-file>.patch
 ```
 
-## Current patches (applied to v0.74.0)
+## Current patches (applied to v0.75.5)
 
 ### Performance patches (`@mariozechner+pi-coding-agent+0.73.0.patch`)
 

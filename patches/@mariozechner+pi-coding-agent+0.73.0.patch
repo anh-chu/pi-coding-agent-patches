@@ -368,18 +368,19 @@
   * Load extensions from paths.
   */
  export async function loadExtensions(paths, cwd, eventBus) {
-@@ -334,16 +362,27 @@
+@@ -334,17 +362,28 @@
      const errors = [];
+     const resolvedCwd = resolvePath(cwd);
      const resolvedEventBus = eventBus ?? createEventBus();
      const runtime = createExtensionRuntime();
 -    for (const extPath of paths) {
--        const { extension, error } = await loadExtension(extPath, cwd, resolvedEventBus, runtime);
+-        const { extension, error } = await loadExtension(extPath, resolvedCwd, resolvedEventBus, runtime);
 +
 +    // Load extensions with very low concurrency. With a shared cached jiti importer,
 +    // higher concurrency contends on CPU, module cache, and filesystem cache work.
 +    const results = await mapExtensionsWithConcurrency(
 +        paths,
-+        async (extPath) => loadExtension(extPath, cwd, resolvedEventBus, runtime),
++        async (extPath) => loadExtension(extPath, resolvedCwd, resolvedEventBus, runtime),
 +        2
 +    );
 +
