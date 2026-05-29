@@ -25,21 +25,21 @@ Always do a dry run first:
 patch -p1 --dry-run < patches/<patch-file>.patch
 ```
 
-## Current patches (applied to v0.75.5)
+## Current patches (applied to v0.77.0)
 
 ### Performance patches (`@mariozechner+pi-coding-agent+0.73.0.patch`)
 
 Targets files in `node_modules/@earendil-works/pi-coding-agent/dist/`:
 
-| File | Change |
-|------|--------|
-| `main.js` | Startup splash TUI; moved benchmark flag earlier |
-| `core/session-manager.js` | `mapWithConcurrency` (64-wide pool); 4 KB cap on session preview text |
-| `core/package-manager.js` | `resolve()` result cache keyed on settings hash; cleared on add/remove/update |
-| `core/agent-session.js` | System prompt cache with stable key; invalidated on tool/resource changes |
-| `core/extensions/loader.js` | Shared jiti singleton with `fsCache`; concurrency=2 for extension loading |
-| `modes/interactive/interactive-mode.js` | Defer `renderInitialMessages` via `setTimeout(0)`; fire-and-forget provider count |
-| `node_modules/.../pi-tui/dist/components/editor.js` | Layout/visual-line-map caches; tiered autocomplete debounce |
+| File                                                | Change                                                                            |
+| --------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `main.js`                                           | Startup splash TUI; moved benchmark flag earlier                                  |
+| `core/session-manager.js`                           | `mapWithConcurrency` (64-wide pool); 4 KB cap on session preview text             |
+| `core/package-manager.js`                           | `resolve()` result cache keyed on settings hash; cleared on add/remove/update     |
+| `core/agent-session.js`                             | System prompt cache with stable key; invalidated on tool/resource changes         |
+| `core/extensions/loader.js`                         | Shared jiti singleton with `fsCache`; concurrency=2 for extension loading         |
+| `modes/interactive/interactive-mode.js`             | Defer `renderInitialMessages` via `setTimeout(0)`; fire-and-forget provider count |
+| `node_modules/.../pi-tui/dist/components/editor.js` | Layout/visual-line-map caches; tiered autocomplete debounce                       |
 
 ### Empty text content fix (`@earendil-works+pi-ai+openai-completions+empty-text.patch`)
 

@@ -33,7 +33,7 @@
  async function promptForMissingSessionCwd(issue, settingsManager) {
      initTheme(settingsManager.getTheme());
      setKeybindings(KeybindingsManager.create());
-@@ -473,11 +490,19 @@
+@@ -473,12 +490,20 @@
          };
      };
      time("createRuntime");
@@ -55,6 +55,7 @@
 +    finally {
 +        stopStartupSplash?.();
 +    }
+     time("createAgentSessionRuntime");
      const { services, session, modelFallbackMessage } = runtime;
      const { settingsManager, modelRegistry, resourceLoader } = services;
      if (parsed.help) {

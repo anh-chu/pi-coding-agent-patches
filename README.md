@@ -35,6 +35,7 @@ patch -p1 -d "$PI_ROOT" < patches/<patch-name>.patch
 **Purpose:** Fix `tool_use.id: String should match pattern '^[a-zA-Z0-9_-]+$'` when switching from a non-Anthropic model (e.g. kimi via opencode-go) to Claude mid-conversation.
 
 **Changes (in `anthropic.js`):**
+
 - `normalizeToolCallId` now handles empty/null input (returns `"tool_call_0"` fallback) and guards against all-invalid-char IDs
 - `tool_use.id` in assistant message blocks is now always passed through `normalizeToolCallId` at formatting time
 - `tool_use_id` in all tool result blocks is also sanitized at formatting time
@@ -46,11 +47,13 @@ patch -p1 -d "$PI_ROOT" < patches/<patch-name>.patch
 **Purpose:** Fix "Invalid request: text content is empty" from strict providers (Kimi k2.6 via opencode-go) when interrupting agent work mid-turn.
 
 **Changes (in `openai-completions.js`):**
+
 - Filter empty text blocks from user messages with array content (mirrors existing `anthropic.js` behavior)
 - Skip user messages with empty string content
 - When an assistant message has `content: null` combined with `tool_calls`, send `content: ""` instead — the opencode.ai proxy normalizes `null` to `[{type:"text",text:""}]` before forwarding to Kimi, which rejects the empty text block
 
 **Root cause:** Two paths produce empty text content in the request history:
+
 1. Any custom/extension message with empty string content reaches kimi as `{type:"text",text:""}`
 2. Tool-only assistant turns (model responds immediately with tool calls, no preamble text) have `content: null`; the opencode.ai proxy normalizes this to `[{"type":"text","text":""}]` before sending to kimi
 
@@ -61,6 +64,7 @@ The second path explains why the error specifically appears after interrupting m
 **Purpose:** Performance optimizations for startup, session loading, and editor rendering.
 
 **Changes:**
+
 - Introduces `mapWithConcurrency()` utility function to process arrays with a concurrency limit while preserving order
 - Optimizes `buildSessionInfo()` to avoid unbounded string arrays when collecting message previews; now caps preview text at 4KB
 - Updates two session loading methods to use the new concurrent processing utility with a concurrency limit of 8
@@ -84,6 +88,7 @@ The second path explains why the error specifically appears after interrupting m
 **Purpose:** Fix orchestrator going silent after subagent notifications when the CC extra-usage cap is hit.
 
 **Changes (in `agent-session.js`):**
+
 - Adds `extra.?usage` to the `_isRetryableError()` regex
 
 **Root cause:** When parallel subagents complete and inject notifications back into the orchestrator session, the triggered LLM turn can hit Anthropic's transient CC extra-usage cap. Pi's retryable error regex did not match `"You're out of extra usage..."`, so the error was classified as permanent. The failed turn was rewound, the notification was dropped, and the orchestrator waited indefinitely for user input. The errors are transient (the extra-usage pool recovers within minutes), so adding the pattern lets the existing exponential-backoff retry path handle them without any user intervention.
@@ -93,6 +98,7 @@ The second path explains why the error specifically appears after interrupting m
 **Purpose:** Fix recurring `400 invalid_request_error: tool_use ids were found without tool_result blocks immediately after` in long conversations.
 
 **Changes (in `anthropic.js`):**
+
 - Adds a final repair pass inside `convertMessages()` that runs after the main message loop and before `cache_control` processing
 - The pass scans the final `params` array for every assistant message with `tool_use` blocks, checks which IDs are not covered by the immediately following user message, and injects synthetic `tool_result` entries for the orphans
 - Orphaned results are prepended into the existing next user message if it has array content, or inserted as a standalone user message otherwise
@@ -106,6 +112,7 @@ The second path explains why the error specifically appears after interrupting m
 **Purpose:** Fix `Bad control character in string literal in JSON` crashing the SSE stream and triggering the `tool_use` without `tool_result` 400 loop.
 
 **Changes (in `utils/json-parse.js`):**
+
 - The existing `repairJson` fallback in `parseJsonWithRepair` is now wrapped in `try/catch` so a failed repair attempt doesn't immediately throw
 - Adds a second fallback: brute-force regex replace of all bare control chars (`\x00-\x08`, `\x0b`, `\x0c`, `\x0e-\x1f`) with their `\uXXXX` Unicode escapes, then retries `JSON.parse`
 - Only rethrows the original error if all three attempts fail
@@ -115,6 +122,6 @@ The second path explains why the error specifically appears after interrupting m
 ## Notes
 
 - Patches target the **global install** of `@earendil-works/pi-coding-agent`, not a project `node_modules`.
-- Patches to `pi-ai` target the copy bundled *inside* pi at `node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/`.
+- Patches to `pi-ai` target the copy bundled _inside_ pi at `node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/`.
 - After a `pi update --self`, re-run `apply-all.sh` — the update replaces the installed files.
-- Tested on v0.75.5. On other versions do a dry-run first to check for offsets.
+- Tested on v0.77.0. On other versions do a dry-run first to check for offsets.
