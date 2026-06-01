@@ -124,4 +124,4 @@ The second path explains why the error specifically appears after interrupting m
 - Patches target the **global install** of `@earendil-works/pi-coding-agent`, not a project `node_modules`.
 - Patches to `pi-ai` target the copy bundled _inside_ pi at `node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/`.
 - After a `pi update --self`, re-run `apply-all.sh` — the update replaces the installed files.
-- Tested on v0.77.0. On other versions do a dry-run first to check for offsets.
+- Tested on v0.78.0. On other versions do a dry-run first to check for offsets.
