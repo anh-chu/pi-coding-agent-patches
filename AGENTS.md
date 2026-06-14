@@ -25,21 +25,36 @@ Always do a dry run first:
 patch -p1 --dry-run < patches/<patch-file>.patch
 ```
 
-## Current patches (applied to v0.78.0)
+## Current patches (applied to v0.79.3)
 
-### Performance patches (`@mariozechner+pi-coding-agent+0.73.0.patch`)
+### Performance patches (`@mariozechner+pi-coding-agent+0.79.3.patch`)
 
-Targets files in `node_modules/@earendil-works/pi-coding-agent/dist/`:
+Rebased onto v0.79.3 from the old `0.73.0` patch. Targets files in
+`node_modules/@earendil-works/pi-coding-agent/dist/`:
 
-| File                                                | Change                                                                            |
-| --------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `main.js`                                           | Startup splash TUI; moved benchmark flag earlier                                  |
-| `core/session-manager.js`                           | `mapWithConcurrency` (64-wide pool); 4 KB cap on session preview text             |
-| `core/package-manager.js`                           | `resolve()` result cache keyed on settings hash; cleared on add/remove/update     |
-| `core/agent-session.js`                             | System prompt cache with stable key; invalidated on tool/resource changes         |
-| `core/extensions/loader.js`                         | Shared jiti singleton with `fsCache`; concurrency=2 for extension loading         |
-| `modes/interactive/interactive-mode.js`             | Defer `renderInitialMessages` via `setTimeout(0)`; fire-and-forget provider count |
-| `node_modules/.../pi-tui/dist/components/editor.js` | Layout/visual-line-map caches; tiered autocomplete debounce                       |
+| File                        | Change                                                                                     |
+| --------------------------- | ----------------------------------------------------------------------------------------- |
+| `main.js`                   | Startup splash TUI ("Starting Pi…") shown while the runtime/extensions load               |
+| `core/session-manager.js`   | 4 KB cap on session preview text (`MAX_PREVIEW`)                                           |
+| `core/package-manager.js`   | `resolve()` result cache keyed on settings hash; cleared on add/remove/update             |
+| `core/agent-session.js`     | System prompt cache with stable key; invalidated on tool/resource changes                 |
+| `core/extensions/loader.js` | Shared jiti singleton with `fsCache`; **extension loading parallelized** (`min(8,cores)`) |
+
+**Why this is the dominant startup win:** pristine v0.79.3 loads all extensions
+**sequentially** (`for…of await` in `loadExtensions`). With ~40 extensions this
+serializes every jiti transpile/instantiate. The patch loads them concurrently
+(capped near core count), turning the longest pre-prompt phase into a parallel one.
+
+**Dropped vs the old 0.73.0 patch** (re-evaluated against pristine 0.79.3, found
+not worth carrying):
+
+- `modes/interactive/interactive-mode.js` deferrals — pristine already paints the
+  TUI (`ui.start()`) *before* binding extensions (`rebindCurrentSession`), so the
+  deferrals were marginal. Left pristine.
+- `node_modules/.../pi-tui/dist/components/editor.js` layout cache + debounce —
+  upstream already rewrote autocomplete debounce to 0/20 ms (slash/tab are
+  immediate). The layout cache was marginal and required ~30 fragile
+  invalidation sites. Left pristine.
 
 ### Empty text content fix (`@earendil-works+pi-ai+openai-completions+empty-text.patch`)
 

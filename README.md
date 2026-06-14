@@ -59,29 +59,25 @@ patch -p1 -d "$PI_ROOT" < patches/<patch-name>.patch
 
 The second path explains why the error specifically appears after interrupting mid-turn: the interrupt exposes the raw tool-only assistant turn in message history on the next send, whereas a completed turn would normally be followed by tool results and another assistant message.
 
-### @earendil-works+pi-coding-agent+0.73.0.patch (filename kept for patch-package compat)
+### @mariozechner+pi-coding-agent+0.79.3.patch
 
-**Purpose:** Performance optimizations for startup, session loading, and editor rendering.
+**Purpose:** Startup performance. Rebased onto v0.79.3 from the old `0.73.0` patch.
 
 **Changes:**
 
-- Introduces `mapWithConcurrency()` utility function to process arrays with a concurrency limit while preserving order
-- Optimizes `buildSessionInfo()` to avoid unbounded string arrays when collecting message previews; now caps preview text at 4KB
-- Updates two session loading methods to use the new concurrent processing utility with a concurrency limit of 8
-- Adds resolve caching in DefaultPackageManager to avoid rescanning skills/prompts/themes/extensions on repeated calls
-- Defers interactive startup provider-count updates so the UI can paint sooner without blocking on footer metadata
-- Defers initial message rendering to next tick, allowing UI to paint before loading chat history
-- Caches editor layout and visual line maps to reduce cursor-move and redraw cost
-- Invalidates editor layout cache on cursor-only movement so arrow-key navigation updates the visible cursor
-- Caches the system prompt in AgentSession to avoid re-merging skills/tools/context on every send
-- Tiered autocomplete debounce: 0ms for Tab/first-trigger chars, 150ms for mid-word typing
-- Loads extensions with a low concurrency cap tuned for cached jiti imports, avoiding CPU and filesystem cache contention
-- Reuses one cached jiti importer for extension loading to avoid repeated importer setup and module parsing
-- Stores jiti transform cache under `~/.pi/agent/cache/jiti` so repeated starts reuse compiled extension code
-- Uses bundled virtual modules for extension imports in Node.js, fixing missing peer imports and avoiding slow failed resolution
-- Shows a minimal startup splash TUI before runtime/resource loading so the terminal responds immediately
+- **Parallelizes extension loading.** Pristine v0.79.3 loads extensions sequentially (`for…of await` in `loadExtensions`); with ~40 extensions every jiti transpile/instantiate is serialized. The patch loads them concurrently, capped at `min(8, cpu cores)`. This is the dominant pre-prompt cost and the main win.
+- Reuses one cached jiti importer with on-disk `fsCache` under `~/.pi/agent/cache/jiti`, so repeated starts reuse compiled extension code (and uses bundled virtual modules so Node.js extension imports resolve without slow failed resolution).
+- Adds `resolve()` caching in `DefaultPackageManager` (keyed on settings hash; cleared on add/remove/update) to avoid rescanning skills/prompts/themes/extensions.
+- Caches the system prompt in `AgentSession` to avoid re-merging skills/tools/context on every send; invalidated on tool/resource changes.
+- Caps session preview text at 4KB (`MAX_PREVIEW`) in `buildSessionInfo()` to avoid unbounded string growth on large sessions.
+- Shows a minimal startup splash TUI ("Starting Pi…") before runtime/resource loading so the terminal responds immediately.
 
-**Why:** Improves startup performance and memory efficiency when loading sessions with many messages, preventing excessive memory accumulation and UI blocking during startup.
+**Dropped from the old 0.73.0 patch** (re-evaluated against pristine 0.79.3):
+
+- Editor layout cache + tiered autocomplete debounce — upstream already makes slash/Tab autocomplete immediate (0/20ms); the layout cache was marginal and needed ~30 fragile invalidation sites.
+- Interactive-mode render/provider-count deferrals — pristine already calls `ui.start()` (first paint) *before* binding extensions, so these were marginal.
+
+**Why:** The old patch was partially mangled by the version bump to 0.79.3 (interactive-mode hunks failed; the splash hunk duplicated a `const`, crashing startup). This rebase restores a clean, minimal set focused on the measured bottleneck — sequential extension loading.
 
 ### @earendil-works+pi-coding-agent+0.74.0+extra-usage-retry.patch
 
@@ -124,4 +120,4 @@ The second path explains why the error specifically appears after interrupting m
 - Patches target the **global install** of `@earendil-works/pi-coding-agent`, not a project `node_modules`.
 - Patches to `pi-ai` target the copy bundled _inside_ pi at `node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/`.
 - After a `pi update --self`, re-run `apply-all.sh` — the update replaces the installed files.
-- Tested on v0.78.0. On other versions do a dry-run first to check for offsets.
+- Tested on v0.79.3. On other versions do a dry-run first to check for offsets.

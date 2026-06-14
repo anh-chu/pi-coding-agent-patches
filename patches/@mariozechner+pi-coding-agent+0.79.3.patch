@@ -1,0 +1,442 @@
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/main.js
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/main.js
+@@ -7,6 +7,7 @@
+ import { createInterface } from "node:readline";
+ import { modelsAreEqual } from "@earendil-works/pi-ai";
+ import chalk from "chalk";
++import { ProcessTerminal, setKeybindings, Text, TUI } from "@earendil-works/pi-tui";
+ import { parseArgs, printHelp } from "./cli/args.js";
+ import { processFileArguments } from "./cli/file-processor.js";
+ import { buildInitialMessage } from "./cli/initial-message.js";
+@@ -344,6 +345,23 @@
+ function resolveCliPaths(cwd, paths) {
+     return paths?.map((value) => (isLocalPath(value) ? resolvePath(value, cwd) : value));
+ }
++function startStartupSplash(settingsManager, appMode) {
++    if (appMode !== "interactive" || process.env.PI_STARTUP_SPLASH === "0") {
++        return undefined;
++    }
++    const ui = new TUI(new ProcessTerminal(), settingsManager.getShowHardwareCursor());
++    ui.setClearOnShrink(settingsManager.getClearOnShrink());
++    ui.addChild(new Text(chalk.dim("Starting Pi..."), 1, 1));
++    ui.start();
++    return () => {
++        try {
++            ui.stop();
++        }
++        catch {
++            // Ignore splash teardown errors; the real TUI starts next.
++        }
++    };
++}
+ async function promptForMissingSessionCwd(issue, settingsManager) {
+     return showStartupSelector(settingsManager, formatMissingSessionCwdPrompt(issue), [
+         { label: "Continue", value: issue.fallbackCwd },
+@@ -568,11 +586,19 @@
+         };
+     };
+     time("createRuntime");
+-    const runtime = await createAgentSessionRuntime(createRuntime, {
+-        cwd: sessionManager.getCwd(),
+-        agentDir,
+-        sessionManager,
+-    });
++    const startupBenchmark = isTruthyEnvFlag(process.env.PI_STARTUP_BENCHMARK);
++    const stopStartupSplash = startupBenchmark ? undefined : startStartupSplash(startupSettingsManager, appMode);
++    let runtime;
++    try {
++        runtime = await createAgentSessionRuntime(createRuntime, {
++            cwd: sessionManager.getCwd(),
++            agentDir,
++            sessionManager,
++        });
++    }
++    finally {
++        stopStartupSplash?.();
++    }
+     time("createAgentSessionRuntime");
+     const { services, session, modelFallbackMessage } = runtime;
+     const { settingsManager, modelRegistry, resourceLoader } = services;
+@@ -614,9 +640,7 @@
+     time("createAgentSession");
+     if (appMode !== "interactive" && !session.model) {
+         console.error(chalk.red(formatNoModelsAvailableMessage()));
+-        process.exit(1);
+     }
+-    const startupBenchmark = isTruthyEnvFlag(process.env.PI_STARTUP_BENCHMARK);
+     if (startupBenchmark && appMode !== "interactive") {
+         console.error(chalk.red("Error: PI_STARTUP_BENCHMARK only supports interactive mode"));
+         process.exit(1);
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js
+@@ -4,6 +4,7 @@
+  */
+ import * as fs from "node:fs";
+ import { createRequire } from "node:module";
++import { cpus } from "node:os";
+ import * as path from "node:path";
+ import { fileURLToPath } from "node:url";
+ import * as _bundledPiAgentCore from "@earendil-works/pi-agent-core";
+@@ -261,15 +262,24 @@
+     };
+     return api;
+ }
+-async function loadExtensionModule(extensionPath) {
+-    const jiti = createJiti(import.meta.url, {
+-        moduleCache: false,
+-        // In Bun binary: use virtualModules for bundled packages (no filesystem resolution)
+-        // Also disable tryNative so jiti handles ALL imports (not just the entry point)
+-        // In Node.js/dev: use aliases to resolve to node_modules paths
+-        ...(isBunBinary ? { virtualModules: VIRTUAL_MODULES, tryNative: false } : { alias: getAliases() }),
++let _extensionJiti = null;
++function getExtensionJiti() {
++    if (_extensionJiti)
++        return _extensionJiti;
++    _extensionJiti = createJiti(import.meta.url, {
++        fsCache: path.join(process.env.HOME || process.cwd(), ".pi", "agent", "cache", "jiti"),
++        moduleCache: true,
++        // Use virtual modules for bundled Pi packages so extensions can import them
++        // even when they are not direct dependencies of the extension package.
++        // Keep aliases for Node.js/dev package resolution.
++        virtualModules: VIRTUAL_MODULES,
++        tryNative: false,
++        ...(!isBunBinary ? { alias: getAliases() } : {}),
+     });
+-    const module = await jiti.import(extensionPath, { default: true });
++    return _extensionJiti;
++}
++async function loadExtensionModule(extensionPath) {
++    const module = await getExtensionJiti().import(extensionPath, { default: true });
+     const factory = module;
+     return typeof factory !== "function" ? undefined : factory;
+ }
+@@ -321,6 +331,25 @@
+     return extension;
+ }
+ /**
++ * Map extension loading with concurrency control.
++ */
++async function mapExtensionsWithConcurrency(items, fn, concurrency) {
++    const results = new Array(items.length);
++    let index = 0;
++    const promises = [];
++    for (let i = 0; i < Math.min(concurrency, items.length); i++) {
++        promises.push((async () => {
++            while (index < items.length) {
++                const idx = index++;
++                results[idx] = await fn(items[idx], idx);
++            }
++        })());
++    }
++    await Promise.all(promises);
++    return results;
++}
++
++/**
+  * Load extensions from paths.
+  */
+ export async function loadExtensions(paths, cwd, eventBus, runtime) {
+@@ -329,16 +358,29 @@
+     const resolvedCwd = resolvePath(cwd);
+     const resolvedEventBus = eventBus ?? createEventBus();
+     const resolvedRuntime = runtime ?? createExtensionRuntime();
+-    for (const extPath of paths) {
+-        const { extension, error } = await loadExtension(extPath, resolvedCwd, resolvedEventBus, resolvedRuntime);
++
++    // Load extensions concurrently. jiti transpile output is cached on disk (fsCache),
++    // so cold starts are CPU-bound on transpilation and warm starts on module
++    // instantiation; both parallelize well. Cap near core count to avoid oversubscription.
++    const EXTENSION_LOAD_CONCURRENCY = Math.max(4, Math.min(8, (cpus().length || 4)));
++    const results = await mapExtensionsWithConcurrency(
++        paths,
++        async (extPath) => loadExtension(extPath, resolvedCwd, resolvedEventBus, resolvedRuntime),
++        EXTENSION_LOAD_CONCURRENCY
++    );
++
++    // Collect results preserving order
++    for (let i = 0; i < results.length; i++) {
++        const { extension, error } = results[i];
+         if (error) {
+-            errors.push({ path: extPath, error });
++            errors.push({ path: paths[i], error });
+             continue;
+         }
+         if (extension) {
+             extensions.push(extension);
+         }
+     }
++
+     return {
+         extensions,
+         errors,
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/core/package-manager.js
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/package-manager.js
+@@ -582,6 +582,8 @@
+     globalNpmRoot;
+     globalNpmRootCommandKey;
+     progressCallback;
++    resolveCacheKey;
++    resolveCachedPaths;
+     constructor(options) {
+         this.cwd = resolvePath(options.cwd);
+         this.agentDir = resolvePath(options.agentDir);
+@@ -590,6 +592,33 @@
+     setProgressCallback(callback) {
+         this.progressCallback = callback;
+     }
++    buildResolveKey() {
++        const globalSettings = this.settingsManager.getGlobalSettings();
++        const projectSettings = this.settingsManager.getProjectSettings();
++        const key = JSON.stringify({
++            cwd: this.cwd,
++            agentDir: this.agentDir,
++            global: {
++                packages: globalSettings.packages,
++                extensions: globalSettings.extensions,
++                skills: globalSettings.skills,
++                prompts: globalSettings.prompts,
++                themes: globalSettings.themes,
++            },
++            project: {
++                packages: projectSettings.packages,
++                extensions: projectSettings.extensions,
++                skills: projectSettings.skills,
++                prompts: projectSettings.prompts,
++                themes: projectSettings.themes,
++            },
++        });
++        return key;
++    }
++    clearResolveCache() {
++        this.resolveCacheKey = undefined;
++        this.resolveCachedPaths = undefined;
++    }
+     addSourceToSettings(source, options) {
+         const scope = options?.local ? "project" : "user";
+         const currentSettings = scope === "project" ? this.settingsManager.getProjectSettings() : this.settingsManager.getGlobalSettings();
+@@ -619,6 +648,7 @@
+         else {
+             this.settingsManager.setPackages(nextPackages);
+         }
++        this.clearResolveCache();
+         return true;
+     }
+     removeSourceFromSettings(source, options) {
+@@ -636,6 +666,7 @@
+         else {
+             this.settingsManager.setPackages(nextPackages);
+         }
++        this.clearResolveCache();
+         return true;
+     }
+     getInstalledPath(source, scope) {
+@@ -671,6 +702,12 @@
+         }
+     }
+     async resolve(onMissing) {
++        if (!onMissing) {
++            const currentKey = this.buildResolveKey();
++            if (this.resolveCacheKey === currentKey && this.resolveCachedPaths) {
++                return this.resolveCachedPaths;
++            }
++        }
+         const accumulator = this.createAccumulator();
+         const globalSettings = this.settingsManager.getGlobalSettings();
+         const projectSettings = this.settingsManager.getProjectSettings();
+@@ -703,7 +740,12 @@
+             }, globalBaseDir);
+         }
+         this.addAutoDiscoveredResources(accumulator, globalSettings, projectSettings, globalBaseDir, projectBaseDir);
+-        return this.toResolvedPaths(accumulator);
++        const resolved = this.toResolvedPaths(accumulator);
++        if (!onMissing) {
++            this.resolveCacheKey = this.buildResolveKey();
++            this.resolveCachedPaths = resolved;
++        }
++        return resolved;
+     }
+     async resolveExtensionSources(sources, options) {
+         const accumulator = this.createAccumulator();
+@@ -865,6 +907,7 @@
+             tasks.push(this.runWithConcurrency(gitTasks, GIT_UPDATE_CONCURRENCY).then(() => { }));
+         }
+         await Promise.all(tasks);
++        this.clearResolveCache();
+     }
+     async shouldUpdateNpmSource(source, scope) {
+         const installedPath = this.getManagedNpmInstallPath(source, scope);
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js
+@@ -113,6 +113,9 @@
+     // Base system prompt (without extension appends) - used to apply fresh appends each turn
+     _baseSystemPrompt = "";
+     _baseSystemPromptOptions;
++    // System prompt caching
++    _systemPromptCache = null;
++    _systemPromptCacheKey = null;
+     constructor(config) {
+         this.agent = config.agent;
+         this.sessionManager = config.sessionManager;
+@@ -552,6 +555,7 @@
+         }
+         this.agent.state.tools = tools;
+         // Rebuild base system prompt with new tool set
++        this._invalidateSystemPromptCache();
+         this._baseSystemPrompt = this._rebuildSystemPrompt(validToolNames);
+         this.agent.state.systemPrompt = this._baseSystemPrompt;
+     }
+@@ -619,6 +623,24 @@
+         }
+         return Array.from(unique);
+     }
++    _generateSystemPromptCacheKey(validToolNames, loaderSystemPrompt, loaderAppendSystemPrompt, loadedSkills, loadedContextFiles, toolSnippets, promptGuidelines) {
++        // Generate a cache key based on all inputs that affect system prompt
++        const keyComponents = [
++            this._cwd,
++            validToolNames.sort().join(','),
++            loaderSystemPrompt,
++            loaderAppendSystemPrompt.join('\n'),
++            loadedSkills.map(s => s.name + ':' + s.location).sort().join(','),
++            loadedContextFiles.map(f => f.name + ':' + f.location).sort().join(','),
++            Object.keys(toolSnippets).sort().map(k => k + ':' + toolSnippets[k]).join(','),
++            promptGuidelines.sort().join(',')
++        ];
++        return keyComponents.join('|');
++    }
++    _invalidateSystemPromptCache() {
++        this._systemPromptCache = null;
++        this._systemPromptCacheKey = null;
++    }
+     _rebuildSystemPrompt(toolNames) {
+         const validToolNames = toolNames.filter((name) => this._toolRegistry.has(name));
+         const toolSnippets = {};
+@@ -648,7 +670,28 @@
+             toolSnippets,
+             promptGuidelines,
+         };
+-        return buildSystemPrompt(this._baseSystemPromptOptions);
++
++        // Check cache first
++        const cacheKey = this._generateSystemPromptCacheKey(validToolNames, loaderSystemPrompt, loaderAppendSystemPrompt, loadedSkills, loadedContextFiles, toolSnippets, promptGuidelines);
++        if (this._systemPromptCache && this._systemPromptCacheKey === cacheKey) {
++            this._baseSystemPromptOptions = {
++                cwd: this._cwd,
++                skills: loadedSkills,
++                contextFiles: loadedContextFiles,
++                customPrompt: loaderSystemPrompt,
++                appendSystemPrompt,
++                selectedTools: validToolNames,
++                toolSnippets,
++                promptGuidelines,
++            };
++            return this._systemPromptCache;
++        }
++
++        // Cache miss - rebuild and cache
++        const result = buildSystemPrompt(this._baseSystemPromptOptions);
++        this._systemPromptCache = result;
++        this._systemPromptCacheKey = cacheKey;
++        return result;
+     }
+     // =========================================================================
+     // Prompting
+@@ -787,8 +830,17 @@
+                 content: userContent,
+                 timestamp: Date.now(),
+             });
+-            // Inject any pending "nextTurn" messages as context alongside the user message
++            // Inject any pending "nextTurn" messages as context alongside the user message.
++            // Skip messages whose text content is identical to expandedText — these are duplicates
++            // produced when an extension echoes the user input via sendCustomMessage (see #4197).
+             for (const msg of this._pendingNextTurnMessages) {
++                const msgText = typeof msg.content === "string"
++                    ? msg.content
++                    : Array.isArray(msg.content)
++                        ? msg.content.filter((b) => b.type === "text").map((b) => b.text).join("")
++                        : "";
++                if (msgText === expandedText)
++                    continue;
+                 messages.push(msg);
+             }
+             this._pendingNextTurnMessages = [];
+@@ -1666,6 +1718,7 @@
+             promptPaths: this.buildExtensionResourcePaths(promptPaths),
+             themePaths: this.buildExtensionResourcePaths(themePaths),
+         };
++        this._invalidateSystemPromptCache();
+         this._resourceLoader.extendResources(extensionPaths);
+         this._baseSystemPrompt = this._rebuildSystemPrompt(this.getActiveToolNames());
+         this.agent.state.systemPrompt = this._baseSystemPrompt;
+@@ -1973,8 +2026,8 @@
+         const err = message.errorMessage;
+         if (this._isNonRetryableProviderLimitError(err))
+             return false;
+-        // Match: overloaded_error, provider returned error, rate limit, 429, 500, 502, 503, 504, service unavailable, network/connection errors (including connection lost), WebSocket transport closes/errors, fetch failed, premature stream endings, HTTP/2 closed before response, terminated, retry delay exceeded
+-        return /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|stream ended before message_stop|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i.test(err);
++        // Match: overloaded_error, provider returned error, rate limit, 429, 500, 502, 503, 504, service unavailable, network/connection errors (including connection lost), WebSocket transport closes/errors, fetch failed, premature stream endings, HTTP/2 closed before response, terminated, retry delay exceeded, extra usage (transient CC quota spike)
++        return /overloaded|extra.?usage|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|stream ended before message_stop|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i.test(err);
+     }
+     /**
+      * Prepare a retryable error for continuation with exponential backoff.
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js
+@@ -17,6 +17,26 @@
+         throw new Error("Session id must be non-empty, contain only alphanumeric characters, '-', '_', and '.', and start and end with an alphanumeric character");
+     }
+ }
++/** Map async work over array with concurrency limit. Preserves order. */
++async function mapWithConcurrency(items, fn, concurrency = 64, onProgress) {
++    const results = new Array(items.length);
++    let loaded = 0;
++    let index = 0;
++    const promises = [];
++    for (let i = 0; i < Math.min(concurrency, items.length); i++) {
++        const promise = (async () => {
++            while (index < items.length) {
++                const idx = index++;
++                results[idx] = await fn(items[idx], idx);
++                loaded++;
++                onProgress?.(loaded, items.length);
++            }
++        })();
++        promises.push(promise);
++    }
++    await Promise.all(promises);
++    return results;
++}
+ /** Generate a unique short ID (8 hex chars, collision-checked) */
+ function generateId(byId) {
+     for (let i = 0; i < 100; i++) {
+@@ -363,7 +383,8 @@
+         let header = null;
+         let messageCount = 0;
+         let firstMessage = "";
+-        const allMessages = [];
++        let allMessagesText = "";
++        const MAX_PREVIEW = 4096;
+         let name;
+         let lastActivityTime;
+         const rl = createInterface({
+@@ -399,7 +420,12 @@
+             const textContent = extractTextContent(message);
+             if (!textContent)
+                 continue;
+-            allMessages.push(textContent);
++            if (allMessagesText.length < MAX_PREVIEW) {
++                allMessagesText += (allMessagesText ? " " : "") + textContent;
++                if (allMessagesText.length > MAX_PREVIEW) {
++                    allMessagesText = allMessagesText.slice(0, MAX_PREVIEW);
++                }
++            }
+             if (!firstMessage && message.role === "user") {
+                 firstMessage = textContent;
+             }
+@@ -424,7 +450,7 @@
+             modified,
+             messageCount,
+             firstMessage: firstMessage || "(no messages)",
+-            allMessagesText: allMessages.join(" "),
++            allMessagesText,
+         };
+     }
+     catch {

@@ -12,7 +12,7 @@ if [ ! -d "$PI_ROOT/node_modules/@earendil-works/pi-coding-agent" ]; then
   exit 1
 fi
 
-TARGET_VERSION="0.75.1"
+TARGET_VERSION="0.79.3"
 INSTALLED_VERSION=$(node -e "console.log(require('$PI_ROOT/node_modules/@earendil-works/pi-coding-agent/package.json').version)")
 
 echo "Applying patches to: $PI_ROOT/node_modules"
@@ -39,7 +39,7 @@ apply() {
 }
 
 # Performance and startup improvements
-apply "@mariozechner+pi-coding-agent+0.73.0.patch"
+apply "@mariozechner+pi-coding-agent+0.79.3.patch"
 
 # Bug fix: empty text blocks sent to strict providers (Kimi via opencode-go)
 apply "@earendil-works+pi-ai+openai-completions+empty-text.patch"
