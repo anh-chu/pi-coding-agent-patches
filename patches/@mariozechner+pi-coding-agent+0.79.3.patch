@@ -340,25 +340,6 @@
      }
      // =========================================================================
      // Prompting
-@@ -787,8 +830,17 @@
-                 content: userContent,
-                 timestamp: Date.now(),
-             });
--            // Inject any pending "nextTurn" messages as context alongside the user message
-+            // Inject any pending "nextTurn" messages as context alongside the user message.
-+            // Skip messages whose text content is identical to expandedText — these are duplicates
-+            // produced when an extension echoes the user input via sendCustomMessage (see #4197).
-             for (const msg of this._pendingNextTurnMessages) {
-+                const msgText = typeof msg.content === "string"
-+                    ? msg.content
-+                    : Array.isArray(msg.content)
-+                        ? msg.content.filter((b) => b.type === "text").map((b) => b.text).join("")
-+                        : "";
-+                if (msgText === expandedText)
-+                    continue;
-                 messages.push(msg);
-             }
-             this._pendingNextTurnMessages = [];
 @@ -1666,6 +1718,7 @@
              promptPaths: this.buildExtensionResourcePaths(promptPaths),
              themePaths: this.buildExtensionResourcePaths(themePaths),
@@ -367,15 +348,6 @@
          this._resourceLoader.extendResources(extensionPaths);
          this._baseSystemPrompt = this._rebuildSystemPrompt(this.getActiveToolNames());
          this.agent.state.systemPrompt = this._baseSystemPrompt;
-@@ -1973,8 +2026,8 @@
-         const err = message.errorMessage;
-         if (this._isNonRetryableProviderLimitError(err))
-             return false;
--        // Match: overloaded_error, provider returned error, rate limit, 429, 500, 502, 503, 504, service unavailable, network/connection errors (including connection lost), WebSocket transport closes/errors, fetch failed, premature stream endings, HTTP/2 closed before response, terminated, retry delay exceeded
--        return /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|stream ended before message_stop|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i.test(err);
-+        // Match: overloaded_error, provider returned error, rate limit, 429, 500, 502, 503, 504, service unavailable, network/connection errors (including connection lost), WebSocket transport closes/errors, fetch failed, premature stream endings, HTTP/2 closed before response, terminated, retry delay exceeded, extra usage (transient CC quota spike)
-+        return /overloaded|extra.?usage|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|stream ended before message_stop|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i.test(err);
-     }
      /**
       * Prepare a retryable error for continuation with exponential backoff.
 --- a/node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js

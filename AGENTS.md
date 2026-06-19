@@ -25,17 +25,17 @@ Always do a dry run first:
 patch -p1 --dry-run < patches/<patch-file>.patch
 ```
 
-## Current patches (applied to v0.79.3)
+## Current patches (applied to v0.79.8; built against v0.79.3, apply clean with fuzz/offset)
 
 ### Performance patches (`@mariozechner+pi-coding-agent+0.79.3.patch`)
 
 Rebased onto v0.79.3 from the old `0.73.0` patch. Targets files in
 `node_modules/@earendil-works/pi-coding-agent/dist/`:
 
-| File                        | Change                                                                                     |
+| File                        | Change                                                                                    |
 | --------------------------- | ----------------------------------------------------------------------------------------- |
 | `main.js`                   | Startup splash TUI ("Starting Pi…") shown while the runtime/extensions load               |
-| `core/session-manager.js`   | 4 KB cap on session preview text (`MAX_PREVIEW`)                                           |
+| `core/session-manager.js`   | 4 KB cap on session preview text (`MAX_PREVIEW`)                                          |
 | `core/package-manager.js`   | `resolve()` result cache keyed on settings hash; cleared on add/remove/update             |
 | `core/agent-session.js`     | System prompt cache with stable key; invalidated on tool/resource changes                 |
 | `core/extensions/loader.js` | Shared jiti singleton with `fsCache`; **extension loading parallelized** (`min(8,cores)`) |
@@ -49,7 +49,7 @@ serializes every jiti transpile/instantiate. The patch loads them concurrently
 not worth carrying):
 
 - `modes/interactive/interactive-mode.js` deferrals — pristine already paints the
-  TUI (`ui.start()`) *before* binding extensions (`rebindCurrentSession`), so the
+  TUI (`ui.start()`) _before_ binding extensions (`rebindCurrentSession`), so the
   deferrals were marginal. Left pristine.
 - `node_modules/.../pi-tui/dist/components/editor.js` layout cache + debounce —
   upstream already rewrote autocomplete debounce to 0/20 ms (slash/tab are

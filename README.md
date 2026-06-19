@@ -75,7 +75,7 @@ The second path explains why the error specifically appears after interrupting m
 **Dropped from the old 0.73.0 patch** (re-evaluated against pristine 0.79.3):
 
 - Editor layout cache + tiered autocomplete debounce — upstream already makes slash/Tab autocomplete immediate (0/20ms); the layout cache was marginal and needed ~30 fragile invalidation sites.
-- Interactive-mode render/provider-count deferrals — pristine already calls `ui.start()` (first paint) *before* binding extensions, so these were marginal.
+- Interactive-mode render/provider-count deferrals — pristine already calls `ui.start()` (first paint) _before_ binding extensions, so these were marginal.
 
 **Why:** The old patch was partially mangled by the version bump to 0.79.3 (interactive-mode hunks failed; the splash hunk duplicated a `const`, crashing startup). This rebase restores a clean, minimal set focused on the measured bottleneck — sequential extension loading.
 
@@ -120,4 +120,4 @@ The second path explains why the error specifically appears after interrupting m
 - Patches target the **global install** of `@earendil-works/pi-coding-agent`, not a project `node_modules`.
 - Patches to `pi-ai` target the copy bundled _inside_ pi at `node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/`.
 - After a `pi update --self`, re-run `apply-all.sh` — the update replaces the installed files.
-- Tested on v0.79.3. On other versions do a dry-run first to check for offsets.
+- Built against v0.79.3, verified on v0.79.8 (apply clean with fuzz/offset). On other versions do a dry-run first to check for offsets.
