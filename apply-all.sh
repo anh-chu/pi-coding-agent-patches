@@ -12,7 +12,7 @@ if [ ! -d "$PI_ROOT/node_modules/@earendil-works/pi-coding-agent" ]; then
   exit 1
 fi
 
-TARGET_VERSION="0.79.3"
+TARGET_VERSION="0.80.3"
 INSTALLED_VERSION=$(node -e "console.log(require('$PI_ROOT/node_modules/@earendil-works/pi-coding-agent/package.json').version)")
 
 echo "Applying patches to: $PI_ROOT/node_modules"
@@ -38,8 +38,15 @@ apply() {
   echo
 }
 
-# Performance and startup improvements
-apply "@mariozechner+pi-coding-agent+0.79.3.patch"
+# Order matters: some patches share a file and are generated to stack.
+#  - dedup-next-turn must precede the perf patch (both touch agent-session.js)
+#  - normalize-tool-id must precede orphaned-tool-use-repair (both touch anthropic-messages.js)
+
+# Bug fix: Bad control character in JSON crashes SSE stream, causing 400 loop
+apply "@earendil-works+pi-ai+json-parse+control-char-repair.patch"
+
+# Bug fix: orchestrator silent after subagent notifications hit CC extra-usage cap
+apply "@earendil-works+pi-ai+retry+extra-usage.patch"
 
 # Bug fix: empty text blocks sent to strict providers (Kimi via opencode-go)
 apply "@earendil-works+pi-ai+openai-completions+empty-text.patch"
@@ -47,16 +54,13 @@ apply "@earendil-works+pi-ai+openai-completions+empty-text.patch"
 # Bug fix: invalid tool call IDs when switching to Claude mid-conversation
 apply "@earendil-works+pi-ai+anthropic+normalize-tool-id.patch"
 
-# Bug fix: duplicate user messages in print mode / subagent dispatch (#4197)
-apply "@earendil-works+pi-coding-agent+issue-4197+dedup-next-turn.patch"
-
-# Bug fix: orchestrator silent after subagent notifications hit CC extra-usage cap
-apply "@earendil-works+pi-coding-agent+0.74.0+extra-usage-retry.patch"
-
 # Bug fix: tool_use ids without tool_result blocks in long conversations (recurring 400)
 apply "@earendil-works+pi-ai+anthropic+orphaned-tool-use-repair.patch"
 
-# Bug fix: Bad control character in JSON crashes SSE stream, causing 400 loop
-apply "@earendil-works+pi-ai+json-parse+control-char-repair.patch"
+# Bug fix: duplicate user messages in print mode / subagent dispatch (#4197)
+apply "@earendil-works+pi-coding-agent+issue-4197+dedup-next-turn.patch"
+
+# Performance and startup improvements
+apply "@mariozechner+pi-coding-agent+0.80.3.patch"
 
 echo "All done."

@@ -8,7 +8,7 @@
  import { parseArgs, printHelp } from "./cli/args.js";
  import { processFileArguments } from "./cli/file-processor.js";
  import { buildInitialMessage } from "./cli/initial-message.js";
-@@ -344,6 +345,23 @@
+@@ -353,6 +354,23 @@
  function resolveCliPaths(cwd, paths) {
      return paths?.map((value) => (isLocalPath(value) ? resolvePath(value, cwd) : value));
  }
@@ -32,7 +32,7 @@
  async function promptForMissingSessionCwd(issue, settingsManager) {
      return showStartupSelector(settingsManager, formatMissingSessionCwdPrompt(issue), [
          { label: "Continue", value: issue.fallbackCwd },
-@@ -568,11 +586,19 @@
+@@ -589,11 +607,19 @@
          };
      };
      time("createRuntime");
@@ -57,7 +57,7 @@
      time("createAgentSessionRuntime");
      const { services, session, modelFallbackMessage } = runtime;
      const { settingsManager, modelRegistry, resourceLoader } = services;
-@@ -614,9 +640,7 @@
+@@ -639,9 +665,7 @@
      time("createAgentSession");
      if (appMode !== "interactive" && !session.model) {
          console.error(chalk.red(formatNoModelsAvailableMessage()));
@@ -67,111 +67,71 @@
      if (startupBenchmark && appMode !== "interactive") {
          console.error(chalk.red("Error: PI_STARTUP_BENCHMARK only supports interactive mode"));
          process.exit(1);
---- a/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js
-+++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js
-@@ -4,6 +4,7 @@
-  */
- import * as fs from "node:fs";
- import { createRequire } from "node:module";
-+import { cpus } from "node:os";
- import * as path from "node:path";
- import { fileURLToPath } from "node:url";
- import * as _bundledPiAgentCore from "@earendil-works/pi-agent-core";
-@@ -261,15 +262,24 @@
-     };
-     return api;
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js
+@@ -17,6 +17,26 @@
+         throw new Error("Session id must be non-empty, contain only alphanumeric characters, '-', '_', and '.', and start and end with an alphanumeric character");
+     }
  }
--async function loadExtensionModule(extensionPath) {
--    const jiti = createJiti(import.meta.url, {
--        moduleCache: false,
--        // In Bun binary: use virtualModules for bundled packages (no filesystem resolution)
--        // Also disable tryNative so jiti handles ALL imports (not just the entry point)
--        // In Node.js/dev: use aliases to resolve to node_modules paths
--        ...(isBunBinary ? { virtualModules: VIRTUAL_MODULES, tryNative: false } : { alias: getAliases() }),
-+let _extensionJiti = null;
-+function getExtensionJiti() {
-+    if (_extensionJiti)
-+        return _extensionJiti;
-+    _extensionJiti = createJiti(import.meta.url, {
-+        fsCache: path.join(process.env.HOME || process.cwd(), ".pi", "agent", "cache", "jiti"),
-+        moduleCache: true,
-+        // Use virtual modules for bundled Pi packages so extensions can import them
-+        // even when they are not direct dependencies of the extension package.
-+        // Keep aliases for Node.js/dev package resolution.
-+        virtualModules: VIRTUAL_MODULES,
-+        tryNative: false,
-+        ...(!isBunBinary ? { alias: getAliases() } : {}),
-     });
--    const module = await jiti.import(extensionPath, { default: true });
-+    return _extensionJiti;
-+}
-+async function loadExtensionModule(extensionPath) {
-+    const module = await getExtensionJiti().import(extensionPath, { default: true });
-     const factory = module;
-     return typeof factory !== "function" ? undefined : factory;
- }
-@@ -321,6 +331,25 @@
-     return extension;
- }
- /**
-+ * Map extension loading with concurrency control.
-+ */
-+async function mapExtensionsWithConcurrency(items, fn, concurrency) {
++/** Map async work over array with concurrency limit. Preserves order. */
++async function mapWithConcurrency(items, fn, concurrency = 64, onProgress) {
 +    const results = new Array(items.length);
++    let loaded = 0;
 +    let index = 0;
 +    const promises = [];
 +    for (let i = 0; i < Math.min(concurrency, items.length); i++) {
-+        promises.push((async () => {
++        const promise = (async () => {
 +            while (index < items.length) {
 +                const idx = index++;
 +                results[idx] = await fn(items[idx], idx);
++                loaded++;
++                onProgress?.(loaded, items.length);
 +            }
-+        })());
++        })();
++        promises.push(promise);
 +    }
 +    await Promise.all(promises);
 +    return results;
 +}
-+
-+/**
-  * Load extensions from paths.
-  */
- export async function loadExtensions(paths, cwd, eventBus, runtime) {
-@@ -329,16 +358,29 @@
-     const resolvedCwd = resolvePath(cwd);
-     const resolvedEventBus = eventBus ?? createEventBus();
-     const resolvedRuntime = runtime ?? createExtensionRuntime();
--    for (const extPath of paths) {
--        const { extension, error } = await loadExtension(extPath, resolvedCwd, resolvedEventBus, resolvedRuntime);
-+
-+    // Load extensions concurrently. jiti transpile output is cached on disk (fsCache),
-+    // so cold starts are CPU-bound on transpilation and warm starts on module
-+    // instantiation; both parallelize well. Cap near core count to avoid oversubscription.
-+    const EXTENSION_LOAD_CONCURRENCY = Math.max(4, Math.min(8, (cpus().length || 4)));
-+    const results = await mapExtensionsWithConcurrency(
-+        paths,
-+        async (extPath) => loadExtension(extPath, resolvedCwd, resolvedEventBus, resolvedRuntime),
-+        EXTENSION_LOAD_CONCURRENCY
-+    );
-+
-+    // Collect results preserving order
-+    for (let i = 0; i < results.length; i++) {
-+        const { extension, error } = results[i];
-         if (error) {
--            errors.push({ path: extPath, error });
-+            errors.push({ path: paths[i], error });
-             continue;
-         }
-         if (extension) {
-             extensions.push(extension);
-         }
+ /** Generate a unique short ID (8 hex chars, collision-checked) */
+ function generateId(byId) {
+     for (let i = 0; i < 100; i++) {
+@@ -364,7 +384,8 @@
+         let header = null;
+         let messageCount = 0;
+         let firstMessage = "";
+-        const allMessages = [];
++        let allMessagesText = "";
++        const MAX_PREVIEW = 4096;
+         let name;
+         let lastActivityTime;
+         const rl = createInterface({
+@@ -400,7 +421,12 @@
+             const textContent = extractTextContent(message);
+             if (!textContent)
+                 continue;
+-            allMessages.push(textContent);
++            if (allMessagesText.length < MAX_PREVIEW) {
++                allMessagesText += (allMessagesText ? " " : "") + textContent;
++                if (allMessagesText.length > MAX_PREVIEW) {
++                    allMessagesText = allMessagesText.slice(0, MAX_PREVIEW);
++                }
++            }
+             if (!firstMessage && message.role === "user") {
+                 firstMessage = textContent;
+             }
+@@ -425,7 +451,7 @@
+             modified,
+             messageCount,
+             firstMessage: firstMessage || "(no messages)",
+-            allMessagesText: allMessages.join(" "),
++            allMessagesText,
+         };
      }
-+
-     return {
-         extensions,
-         errors,
+     catch {
 --- a/node_modules/@earendil-works/pi-coding-agent/dist/core/package-manager.js
 +++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/package-manager.js
-@@ -582,6 +582,8 @@
+@@ -589,6 +589,8 @@
      globalNpmRoot;
      globalNpmRootCommandKey;
      progressCallback;
@@ -180,7 +140,7 @@
      constructor(options) {
          this.cwd = resolvePath(options.cwd);
          this.agentDir = resolvePath(options.agentDir);
-@@ -590,6 +592,33 @@
+@@ -597,6 +599,33 @@
      setProgressCallback(callback) {
          this.progressCallback = callback;
      }
@@ -214,7 +174,7 @@
      addSourceToSettings(source, options) {
          const scope = options?.local ? "project" : "user";
          const currentSettings = scope === "project" ? this.settingsManager.getProjectSettings() : this.settingsManager.getGlobalSettings();
-@@ -619,6 +648,7 @@
+@@ -626,6 +655,7 @@
          else {
              this.settingsManager.setPackages(nextPackages);
          }
@@ -222,7 +182,7 @@
          return true;
      }
      removeSourceFromSettings(source, options) {
-@@ -636,6 +666,7 @@
+@@ -643,6 +673,7 @@
          else {
              this.settingsManager.setPackages(nextPackages);
          }
@@ -230,7 +190,7 @@
          return true;
      }
      getInstalledPath(source, scope) {
-@@ -671,6 +702,12 @@
+@@ -678,6 +709,12 @@
          }
      }
      async resolve(onMissing) {
@@ -243,7 +203,7 @@
          const accumulator = this.createAccumulator();
          const globalSettings = this.settingsManager.getGlobalSettings();
          const projectSettings = this.settingsManager.getProjectSettings();
-@@ -703,7 +740,12 @@
+@@ -710,7 +747,12 @@
              }, globalBaseDir);
          }
          this.addAutoDiscoveredResources(accumulator, globalSettings, projectSettings, globalBaseDir, projectBaseDir);
@@ -257,7 +217,7 @@
      }
      async resolveExtensionSources(sources, options) {
          const accumulator = this.createAccumulator();
-@@ -865,6 +907,7 @@
+@@ -872,6 +914,7 @@
              tasks.push(this.runWithConcurrency(gitTasks, GIT_UPDATE_CONCURRENCY).then(() => { }));
          }
          await Promise.all(tasks);
@@ -265,27 +225,82 @@
      }
      async shouldUpdateNpmSource(source, scope) {
          const installedPath = this.getManagedNpmInstallPath(source, scope);
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js
+@@ -4,6 +4,7 @@
+  */
+ import * as fs from "node:fs";
+ import { createRequire } from "node:module";
++import { cpus } from "node:os";
+ import * as path from "node:path";
+ import { fileURLToPath } from "node:url";
+ import * as _bundledPiAgentCore from "@earendil-works/pi-agent-core";
+@@ -368,6 +369,25 @@
+     return extension;
+ }
+ /**
++ * Map extension loading with concurrency control.
++ */
++async function mapExtensionsWithConcurrency(items, fn, concurrency) {
++    const results = new Array(items.length);
++    let index = 0;
++    const promises = [];
++    for (let i = 0; i < Math.min(concurrency, items.length); i++) {
++        promises.push((async () => {
++            while (index < items.length) {
++                const idx = index++;
++                results[idx] = await fn(items[idx], idx);
++            }
++        })());
++    }
++    await Promise.all(promises);
++    return results;
++}
++
++/**
+  * Load extensions from paths.
+  */
+ async function loadExtensionsInternal(paths, cwd, eventBus, runtime, useCache = false) {
+@@ -377,10 +397,15 @@
+     const resolvedCwd = cacheToken?.cwd ?? resolvePath(cwd);
+     const resolvedEventBus = eventBus ?? createEventBus();
+     const resolvedRuntime = runtime ?? createExtensionRuntime();
+-    for (const extPath of paths) {
+-        const { extension, error } = await loadExtension(extPath, resolvedCwd, resolvedEventBus, resolvedRuntime, cacheToken);
++    // Load extensions concurrently. jiti transpile output is cached on disk (fsCache),
++    // so cold starts are CPU-bound on transpilation and warm starts on module
++    // instantiation; both parallelize well. Cap near core count to avoid oversubscription.
++    const EXTENSION_LOAD_CONCURRENCY = Math.max(4, Math.min(8, (cpus().length || 4)));
++    const results = await mapExtensionsWithConcurrency(paths, async (extPath) => loadExtension(extPath, resolvedCwd, resolvedEventBus, resolvedRuntime, cacheToken), EXTENSION_LOAD_CONCURRENCY);
++    for (let i = 0; i < results.length; i++) {
++        const { extension, error } = results[i];
+         if (error) {
+-            errors.push({ path: extPath, error });
++            errors.push({ path: paths[i], error });
+             continue;
+         }
+         if (extension) {
 --- a/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js
 +++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js
-@@ -113,6 +113,9 @@
+@@ -120,6 +120,9 @@
      // Base system prompt (without extension appends) - used to apply fresh appends each turn
      _baseSystemPrompt = "";
      _baseSystemPromptOptions;
 +    // System prompt caching
 +    _systemPromptCache = null;
 +    _systemPromptCacheKey = null;
+     _systemPromptOverride;
      constructor(config) {
          this.agent = config.agent;
-         this.sessionManager = config.sessionManager;
-@@ -552,6 +555,7 @@
+@@ -581,6 +584,7 @@
          }
          this.agent.state.tools = tools;
          // Rebuild base system prompt with new tool set
 +        this._invalidateSystemPromptCache();
          this._baseSystemPrompt = this._rebuildSystemPrompt(validToolNames);
-         this.agent.state.systemPrompt = this._baseSystemPrompt;
+         this.agent.state.systemPrompt = this._systemPromptOverride ?? this._baseSystemPrompt;
      }
-@@ -619,6 +623,24 @@
+@@ -648,6 +652,24 @@
          }
          return Array.from(unique);
      }
@@ -310,7 +325,7 @@
      _rebuildSystemPrompt(toolNames) {
          const validToolNames = toolNames.filter((name) => this._toolRegistry.has(name));
          const toolSnippets = {};
-@@ -648,7 +670,28 @@
+@@ -677,7 +699,28 @@
              toolSnippets,
              promptGuidelines,
          };
@@ -340,7 +355,7 @@
      }
      // =========================================================================
      // Prompting
-@@ -1666,6 +1718,7 @@
+@@ -1706,6 +1749,7 @@
              promptPaths: this.buildExtensionResourcePaths(promptPaths),
              themePaths: this.buildExtensionResourcePaths(themePaths),
          };
@@ -348,67 +363,3 @@
          this._resourceLoader.extendResources(extensionPaths);
          this._baseSystemPrompt = this._rebuildSystemPrompt(this.getActiveToolNames());
          this.agent.state.systemPrompt = this._baseSystemPrompt;
-     /**
-      * Prepare a retryable error for continuation with exponential backoff.
---- a/node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js
-+++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js
-@@ -17,6 +17,26 @@
-         throw new Error("Session id must be non-empty, contain only alphanumeric characters, '-', '_', and '.', and start and end with an alphanumeric character");
-     }
- }
-+/** Map async work over array with concurrency limit. Preserves order. */
-+async function mapWithConcurrency(items, fn, concurrency = 64, onProgress) {
-+    const results = new Array(items.length);
-+    let loaded = 0;
-+    let index = 0;
-+    const promises = [];
-+    for (let i = 0; i < Math.min(concurrency, items.length); i++) {
-+        const promise = (async () => {
-+            while (index < items.length) {
-+                const idx = index++;
-+                results[idx] = await fn(items[idx], idx);
-+                loaded++;
-+                onProgress?.(loaded, items.length);
-+            }
-+        })();
-+        promises.push(promise);
-+    }
-+    await Promise.all(promises);
-+    return results;
-+}
- /** Generate a unique short ID (8 hex chars, collision-checked) */
- function generateId(byId) {
-     for (let i = 0; i < 100; i++) {
-@@ -363,7 +383,8 @@
-         let header = null;
-         let messageCount = 0;
-         let firstMessage = "";
--        const allMessages = [];
-+        let allMessagesText = "";
-+        const MAX_PREVIEW = 4096;
-         let name;
-         let lastActivityTime;
-         const rl = createInterface({
-@@ -399,7 +420,12 @@
-             const textContent = extractTextContent(message);
-             if (!textContent)
-                 continue;
--            allMessages.push(textContent);
-+            if (allMessagesText.length < MAX_PREVIEW) {
-+                allMessagesText += (allMessagesText ? " " : "") + textContent;
-+                if (allMessagesText.length > MAX_PREVIEW) {
-+                    allMessagesText = allMessagesText.slice(0, MAX_PREVIEW);
-+                }
-+            }
-             if (!firstMessage && message.role === "user") {
-                 firstMessage = textContent;
-             }
-@@ -424,7 +450,7 @@
-             modified,
-             messageCount,
-             firstMessage: firstMessage || "(no messages)",
--            allMessagesText: allMessages.join(" "),
-+            allMessagesText,
-         };
-     }
-     catch {

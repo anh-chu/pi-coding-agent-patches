@@ -34,7 +34,7 @@ patch -p1 -d "$PI_ROOT" < patches/<patch-name>.patch
 
 **Purpose:** Fix `tool_use.id: String should match pattern '^[a-zA-Z0-9_-]+$'` when switching from a non-Anthropic model (e.g. kimi via opencode-go) to Claude mid-conversation.
 
-**Changes (in `anthropic.js`):**
+**Changes (in `api/anthropic-messages.js`):**
 
 - `normalizeToolCallId` now handles empty/null input (returns `"tool_call_0"` fallback) and guards against all-invalid-char IDs
 - `tool_use.id` in assistant message blocks is now always passed through `normalizeToolCallId` at formatting time
@@ -46,7 +46,7 @@ patch -p1 -d "$PI_ROOT" < patches/<patch-name>.patch
 
 **Purpose:** Fix "Invalid request: text content is empty" from strict providers (Kimi k2.6 via opencode-go) when interrupting agent work mid-turn.
 
-**Changes (in `openai-completions.js`):**
+**Changes (in `api/openai-completions.js`):**
 
 - Filter empty text blocks from user messages with array content (mirrors existing `anthropic.js` behavior)
 - Skip user messages with empty string content
@@ -59,33 +59,32 @@ patch -p1 -d "$PI_ROOT" < patches/<patch-name>.patch
 
 The second path explains why the error specifically appears after interrupting mid-turn: the interrupt exposes the raw tool-only assistant turn in message history on the next send, whereas a completed turn would normally be followed by tool results and another assistant message.
 
-### @mariozechner+pi-coding-agent+0.79.3.patch
+### @mariozechner+pi-coding-agent+0.80.3.patch
 
-**Purpose:** Startup performance. Rebased onto v0.79.3 from the old `0.73.0` patch.
+**Purpose:** Startup performance. Rebased onto v0.80.3.
 
 **Changes:**
 
-- **Parallelizes extension loading.** Pristine v0.79.3 loads extensions sequentially (`for…of await` in `loadExtensions`); with ~40 extensions every jiti transpile/instantiate is serialized. The patch loads them concurrently, capped at `min(8, cpu cores)`. This is the dominant pre-prompt cost and the main win.
-- Reuses one cached jiti importer with on-disk `fsCache` under `~/.pi/agent/cache/jiti`, so repeated starts reuse compiled extension code (and uses bundled virtual modules so Node.js extension imports resolve without slow failed resolution).
+- **Parallelizes extension loading.** Pristine v0.80.3 still loads extensions sequentially (`for…of await` in `loadExtensionsInternal`); with ~40 extensions every jiti transpile/instantiate is serialized. The patch loads them concurrently, capped at `min(8, cpu cores)`. This is the dominant pre-prompt cost and the main win.
 - Adds `resolve()` caching in `DefaultPackageManager` (keyed on settings hash; cleared on add/remove/update) to avoid rescanning skills/prompts/themes/extensions.
 - Caches the system prompt in `AgentSession` to avoid re-merging skills/tools/context on every send; invalidated on tool/resource changes.
 - Caps session preview text at 4KB (`MAX_PREVIEW`) in `buildSessionInfo()` to avoid unbounded string growth on large sessions.
 - Shows a minimal startup splash TUI ("Starting Pi…") before runtime/resource loading so the terminal responds immediately.
 
-**Dropped from the old 0.73.0 patch** (re-evaluated against pristine 0.79.3):
+**Dropped in the 0.80.3 rebase:**
 
-- Editor layout cache + tiered autocomplete debounce — upstream already makes slash/Tab autocomplete immediate (0/20ms); the layout cache was marginal and needed ~30 fragile invalidation sites.
-- Interactive-mode render/provider-count deferrals — pristine already calls `ui.start()` (first paint) _before_ binding extensions, so these were marginal.
+- The old jiti-singleton + `fsCache` loader change. v0.80.3 added its own module-level factory cache (`extensionCache` keyed by a cacheToken, plus `loadExtensionsCached`), so layering a shared-jiti `fsCache` on top is marginal and risks colliding with upstream caching. Only the concurrency change is carried.
+- (from the earlier 0.73.0 lineage) editor layout cache, autocomplete debounce, and interactive-mode deferrals — upstream already covers these.
 
-**Why:** The old patch was partially mangled by the version bump to 0.79.3 (interactive-mode hunks failed; the splash hunk duplicated a `const`, crashing startup). This rebase restores a clean, minimal set focused on the measured bottleneck — sequential extension loading.
-
-### @earendil-works+pi-coding-agent+0.74.0+extra-usage-retry.patch
+### @earendil-works+pi-ai+retry+extra-usage.patch
 
 **Purpose:** Fix orchestrator going silent after subagent notifications when the CC extra-usage cap is hit.
 
-**Changes (in `agent-session.js`):**
+> Renamed and re-homed for v0.80.3. Retry classification moved out of `agent-session.js` (`_isRetryableError()`) into pi-ai's shared `isRetryableAssistantError()` / `RETRYABLE_PROVIDER_ERROR_PATTERN`.
 
-- Adds `extra.?usage` to the `_isRetryableError()` regex
+**Changes (in `utils/retry.js`):**
+
+- Adds `"extra.?usage"` to `RETRYABLE_PROVIDER_ERROR_PATTERN` (not caught by the non-retryable budget/quota/billing pattern)
 
 **Root cause:** When parallel subagents complete and inject notifications back into the orchestrator session, the triggered LLM turn can hit Anthropic's transient CC extra-usage cap. Pi's retryable error regex did not match `"You're out of extra usage..."`, so the error was classified as permanent. The failed turn was rewound, the notification was dropped, and the orchestrator waited indefinitely for user input. The errors are transient (the extra-usage pool recovers within minutes), so adding the pattern lets the existing exponential-backoff retry path handle them without any user intervention.
 
@@ -93,7 +92,7 @@ The second path explains why the error specifically appears after interrupting m
 
 **Purpose:** Fix recurring `400 invalid_request_error: tool_use ids were found without tool_result blocks immediately after` in long conversations.
 
-**Changes (in `anthropic.js`):**
+**Changes (in `api/anthropic-messages.js`):**
 
 - Adds a final repair pass inside `convertMessages()` that runs after the main message loop and before `cache_control` processing
 - The pass scans the final `params` array for every assistant message with `tool_use` blocks, checks which IDs are not covered by the immediately following user message, and injects synthetic `tool_result` entries for the orphans
@@ -120,4 +119,4 @@ The second path explains why the error specifically appears after interrupting m
 - Patches target the **global install** of `@earendil-works/pi-coding-agent`, not a project `node_modules`.
 - Patches to `pi-ai` target the copy bundled _inside_ pi at `node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/`.
 - After a `pi update --self`, re-run `apply-all.sh` — the update replaces the installed files.
-- Built against v0.79.3, verified on v0.79.8 (apply clean with fuzz/offset). On other versions do a dry-run first to check for offsets.
+- Rebased against and verified on v0.80.3 (full reverse+forward round-trip clean). On other versions do a dry-run first to check for offsets.

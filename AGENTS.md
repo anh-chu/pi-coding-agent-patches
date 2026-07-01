@@ -25,40 +25,38 @@ Always do a dry run first:
 patch -p1 --dry-run < patches/<patch-file>.patch
 ```
 
-## Current patches (applied to v0.79.8; built against v0.79.3, apply clean with fuzz/offset)
+## Current patches (rebased onto and applied to v0.80.3)
 
-### Performance patches (`@mariozechner+pi-coding-agent+0.79.3.patch`)
+> v0.80.3 restructured the bundled pi-ai: Anthropic message-building moved from `providers/anthropic.js` to `api/anthropic-messages.js`, `openai-completions.js` moved to `api/`, and retry classification moved from `agent-session.js` into pi-ai `utils/retry.js`. All patches below target the new paths. Apply order matters (see `apply-all.sh`): `dedup-next-turn` before the perf patch, `normalize-tool-id` before `orphaned-tool-use-repair`.
 
-Rebased onto v0.79.3 from the old `0.73.0` patch. Targets files in
+### Performance patches (`@mariozechner+pi-coding-agent+0.80.3.patch`)
+
+Rebased onto v0.80.3. Targets files in
 `node_modules/@earendil-works/pi-coding-agent/dist/`:
 
-| File                        | Change                                                                                    |
-| --------------------------- | ----------------------------------------------------------------------------------------- |
-| `main.js`                   | Startup splash TUI ("Starting Pi…") shown while the runtime/extensions load               |
-| `core/session-manager.js`   | 4 KB cap on session preview text (`MAX_PREVIEW`)                                          |
-| `core/package-manager.js`   | `resolve()` result cache keyed on settings hash; cleared on add/remove/update             |
-| `core/agent-session.js`     | System prompt cache with stable key; invalidated on tool/resource changes                 |
-| `core/extensions/loader.js` | Shared jiti singleton with `fsCache`; **extension loading parallelized** (`min(8,cores)`) |
+| File                        | Change                                                                          |
+| --------------------------- | ------------------------------------------------------------------------------- |
+| `main.js`                   | Startup splash TUI ("Starting Pi…") shown while the runtime/extensions load     |
+| `core/session-manager.js`   | 4 KB cap on session preview text (`MAX_PREVIEW`)                                |
+| `core/package-manager.js`   | `resolve()` result cache keyed on settings hash; cleared on add/remove/update   |
+| `core/agent-session.js`     | System prompt cache with stable key; invalidated on tool/resource changes       |
+| `core/extensions/loader.js` | **Extension loading parallelized** (`min(8,cores)`) in `loadExtensionsInternal` |
 
-**Why this is the dominant startup win:** pristine v0.79.3 loads all extensions
-**sequentially** (`for…of await` in `loadExtensions`). With ~40 extensions this
-serializes every jiti transpile/instantiate. The patch loads them concurrently
-(capped near core count), turning the longest pre-prompt phase into a parallel one.
+**Why this is the dominant startup win:** pristine v0.80.3 still loads all
+extensions **sequentially** (`for…of await` in `loadExtensionsInternal`). With
+~40 extensions this serializes every jiti transpile/instantiate. The patch loads
+them concurrently (capped near core count), turning the longest pre-prompt phase
+into a parallel one.
 
-**Dropped vs the old 0.73.0 patch** (re-evaluated against pristine 0.79.3, found
-not worth carrying):
-
-- `modes/interactive/interactive-mode.js` deferrals — pristine already paints the
-  TUI (`ui.start()`) _before_ binding extensions (`rebindCurrentSession`), so the
-  deferrals were marginal. Left pristine.
-- `node_modules/.../pi-tui/dist/components/editor.js` layout cache + debounce —
-  upstream already rewrote autocomplete debounce to 0/20 ms (slash/tab are
-  immediate). The layout cache was marginal and required ~30 fragile
-  invalidation sites. Left pristine.
+**Dropped in the 0.80.3 rebase:** the old jiti-singleton + `fsCache` loader hunk.
+v0.80.3 added its own module-level factory cache (`extensionCache` keyed by a
+cacheToken, plus `loadExtensionsCached`), so layering a shared-jiti `fsCache` on
+top is marginal and risks colliding with upstream's caching. Only the concurrency
+change is carried.
 
 ### Empty text content fix (`@earendil-works+pi-ai+openai-completions+empty-text.patch`)
 
-Targets `node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/openai-completions.js`.
+Targets `node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js` (moved from `providers/` in v0.80.3).
 
 Fixes `Invalid request: text content is empty` from strict providers (kimi-k2.6 via opencode-go) when interrupting an agent turn then sending a new message.
 
@@ -68,7 +66,7 @@ Fixes `Invalid request: text content is empty` from strict providers (kimi-k2.6 
 
 ### Tool call ID normalization (`@earendil-works+pi-ai+anthropic+normalize-tool-id.patch`)
 
-Targets `node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/anthropic.js`.
+Targets `node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/api/anthropic-messages.js` (Anthropic message-building moved here from `providers/anthropic.js` in v0.80.3).
 
 Fixes `tool_use.id: String should match pattern '^[a-zA-Z0-9_-]+$'` when switching from a non-Anthropic model (e.g. kimi via opencode-go) to Claude mid-conversation.
 
@@ -83,17 +81,19 @@ Fixes `tool_use.id: String should match pattern '^[a-zA-Z0-9_-]+$'` when switchi
 - Tool call ID normalization in `anthropic.js` runs at two levels: `transformMessages` (cross-model detection) and now also at payload build time (safety net)
 - Patches to pi-ai sub-package must target the NESTED path inside pi-coding-agent's own `node_modules`, not any global pi-ai install
 
-### Extra-usage retry fix (`@earendil-works+pi-coding-agent+0.74.0+extra-usage-retry.patch`)
+### Extra-usage retry fix (`@earendil-works+pi-ai+retry+extra-usage.patch`)
 
-Targets `dist/core/agent-session.js`.
+Targets `node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/utils/retry.js`.
 
-Fixes orchestrator going silent after subagent notifications hit the CC extra-usage cap. Pi's `_isRetryableError()` regex did not match `"You're out of extra usage..."`, so the error was classified as non-retryable. The failed turn was rewound, the notification was dropped, and the orchestrator waited indefinitely for user input.
+> Renamed and re-homed in the v0.80.3 rebase. The retry classifier moved out of `agent-session.js`'s inline `_isRetryableError()` regex into pi-ai's shared `isRetryableAssistantError()` / `RETRYABLE_PROVIDER_ERROR_PATTERN`. (Old patch: `@earendil-works+pi-coding-agent+0.74.0+extra-usage-retry.patch`, retired.)
 
-Adds `extra.?usage` to the retryable pattern. The errors are transient (CC extra-usage pool recovers within minutes), so the existing exponential-backoff retry path handles them correctly.
+Fixes orchestrator going silent after subagent notifications hit the CC extra-usage cap. The retryable pattern did not match `"You're out of extra usage..."`, so the error was classified as non-retryable. The failed turn was rewound, the notification was dropped, and the orchestrator waited indefinitely for user input.
+
+Adds `"extra.?usage"` to `RETRYABLE_PROVIDER_ERROR_PATTERN`. The errors are transient (CC extra-usage pool recovers within minutes); it is not caught by `NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN` (budget/quota/billing), so the existing exponential-backoff retry path handles it.
 
 ### Orphaned tool_use repair (`@earendil-works+pi-ai+anthropic+orphaned-tool-use-repair.patch`)
 
-Targets `node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/anthropic.js`.
+Targets `node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/api/anthropic-messages.js`.
 
 Fixes recurring `400 invalid_request_error: tool_use ids were found without tool_result blocks immediately after` from the Anthropic API in long conversations.
 

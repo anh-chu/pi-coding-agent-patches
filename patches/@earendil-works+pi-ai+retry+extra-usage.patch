@@ -1,0 +1,12 @@
+--- a/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/utils/retry.js
++++ b/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/utils/retry.js
+@@ -20,6 +20,9 @@
+ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
+     // Generic provider load, HTTP status, and server-side transient failures.
+     "overloaded",
++    // Transient CC extra-usage quota spike ("You're out of extra usage..."); pool
++    // recovers within minutes, so let the outer backoff retry it (patch).
++    "extra.?usage",
+     "rate.?limit",
+     "too many requests",
+     "429",

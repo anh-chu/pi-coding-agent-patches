@@ -1,6 +1,6 @@
---- a/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/anthropic.js
-+++ b/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/anthropic.js
-@@ -746,7 +746,10 @@
+--- a/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/api/anthropic-messages.js
++++ b/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/api/anthropic-messages.js
+@@ -758,7 +758,10 @@
  }
  // Normalize tool call IDs to match Anthropic's required pattern and length
  function normalizeToolCallId(id) {
@@ -10,9 +10,9 @@
 +    const normalized = id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
 +    return normalized || "tool_call_0";
  }
- function convertMessages(messages, model, isOAuthToken, cacheControl) {
+ function convertMessages(messages, model, isOAuthToken, cacheControl, allowEmptySignature = false) {
      const params = [];
-@@ -838,7 +841,7 @@
+@@ -856,7 +859,7 @@
                  else if (block.type === "toolCall") {
                      blocks.push({
                          type: "tool_use",
@@ -21,7 +21,7 @@
                          name: isOAuthToken ? toClaudeCodeName(block.name) : block.name,
                          input: block.arguments ?? {},
                      });
-@@ -857,7 +860,7 @@
+@@ -875,7 +878,7 @@
              // Add the current tool result
              toolResults.push({
                  type: "tool_result",
@@ -30,7 +30,7 @@
                  content: convertContentBlocks(msg.content),
                  is_error: msg.isError,
              });
-@@ -867,7 +870,7 @@
+@@ -885,7 +888,7 @@
                  const nextMsg = transformedMessages[j]; // We know it's a toolResult
                  toolResults.push({
                      type: "tool_result",

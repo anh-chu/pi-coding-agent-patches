@@ -1,6 +1,6 @@
---- a/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/openai-completions.js
-+++ b/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/openai-completions.js
-@@ -593,26 +593,32 @@
+--- a/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js
++++ b/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js
+@@ -699,26 +699,32 @@
          }
          if (msg.role === "user") {
              if (typeof msg.content === "string") {
@@ -17,7 +17,7 @@
 +                const content = msg.content.flatMap((item) => {
                      if (item.type === "text") {
 -                        return {
-+                        // Filter empty text blocks (mirrors anthropic.js behavior)
++                        // Filter empty text blocks (mirrors anthropic behavior)
 +                        if (!item.text || !item.text.trim())
 +                            return [];
 +                        return [{
@@ -38,7 +38,7 @@
                      }
                  });
                  if (content.length === 0)
-@@ -713,6 +719,12 @@
+@@ -822,6 +828,12 @@
              if (!hasContent && !assistantMsg.tool_calls) {
                  continue;
              }
