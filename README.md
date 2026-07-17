@@ -119,4 +119,4 @@ The second path explains why the error specifically appears after interrupting m
 - Patches target the **global install** of `@earendil-works/pi-coding-agent`, not a project `node_modules`.
 - Patches to `pi-ai` target the copy bundled _inside_ pi at `node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/`.
 - After a `pi update --self`, re-run `apply-all.sh` — the update replaces the installed files.
-- Rebased against and verified on v0.80.3 (full reverse+forward round-trip clean). On other versions do a dry-run first to check for offsets.
+- Verified applied on v0.80.10 (all 7 reverse-apply clean; some hunks land with line offsets, which `patch` handles). `apply-all.sh` `TARGET_VERSION` is `0.80.10`. `normalize-tool-id` was rebased for 0.80.10 (upstream split tool_result building into `convertToolResult`). On other versions do a dry-run first to check for offsets.

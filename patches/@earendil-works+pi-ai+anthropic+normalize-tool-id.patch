@@ -1,6 +1,6 @@
 --- a/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/api/anthropic-messages.js
 +++ b/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/api/anthropic-messages.js
-@@ -758,7 +758,10 @@
+@@ -791,7 +791,10 @@
  }
  // Normalize tool call IDs to match Anthropic's required pattern and length
  function normalizeToolCallId(id) {
@@ -10,9 +10,18 @@
 +    const normalized = id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
 +    return normalized || "tool_call_0";
  }
- function convertMessages(messages, model, isOAuthToken, cacheControl, allowEmptySignature = false) {
-     const params = [];
-@@ -856,7 +859,7 @@
+ function convertToolResult(msg, isOAuthToken, deferredToolNames, loadedToolNames, normalizeToolName) {
+     const references = [];
+@@ -810,7 +813,7 @@
+     return {
+         toolResult: {
+             type: "tool_result",
+-            tool_use_id: msg.toolCallId,
++            tool_use_id: normalizeToolCallId(msg.toolCallId),
+             content: references.length > 0 ? references : convertedContent,
+             is_error: msg.isError,
+         },
+@@ -918,7 +921,7 @@
                  else if (block.type === "toolCall") {
                      blocks.push({
                          type: "tool_use",
@@ -21,21 +30,3 @@
                          name: isOAuthToken ? toClaudeCodeName(block.name) : block.name,
                          input: block.arguments ?? {},
                      });
-@@ -875,7 +878,7 @@
-             // Add the current tool result
-             toolResults.push({
-                 type: "tool_result",
--                tool_use_id: msg.toolCallId,
-+                tool_use_id: normalizeToolCallId(msg.toolCallId),
-                 content: convertContentBlocks(msg.content),
-                 is_error: msg.isError,
-             });
-@@ -885,7 +888,7 @@
-                 const nextMsg = transformedMessages[j]; // We know it's a toolResult
-                 toolResults.push({
-                     type: "tool_result",
--                    tool_use_id: nextMsg.toolCallId,
-+                    tool_use_id: normalizeToolCallId(nextMsg.toolCallId),
-                     content: convertContentBlocks(nextMsg.content),
-                     is_error: nextMsg.isError,
-                 });

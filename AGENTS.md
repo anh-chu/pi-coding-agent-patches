@@ -25,9 +25,9 @@ Always do a dry run first:
 patch -p1 --dry-run < patches/<patch-file>.patch
 ```
 
-## Current patches (rebased onto and applied to v0.80.3)
+## Current patches (applied to v0.80.10)
 
-> v0.80.3 restructured the bundled pi-ai: Anthropic message-building moved from `providers/anthropic.js` to `api/anthropic-messages.js`, `openai-completions.js` moved to `api/`, and retry classification moved from `agent-session.js` into pi-ai `utils/retry.js`. All patches below target the new paths. Apply order matters (see `apply-all.sh`): `dedup-next-turn` before the perf patch, `normalize-tool-id` before `orphaned-tool-use-repair`.
+> `apply-all.sh` `TARGET_VERSION` is `0.80.10`. All 7 patches apply cleanly to 0.80.10 (some hunks land with line offsets, which `patch` handles). v0.80.3 restructured the bundled pi-ai: Anthropic message-building moved from `providers/anthropic.js` to `api/anthropic-messages.js`, `openai-completions.js` moved to `api/`, and retry classification moved from `agent-session.js` into pi-ai `utils/retry.js`. v0.80.10 further split Anthropic tool_result building into `convertToolResult`, so `normalize-tool-id` was rebased (see its section). Apply order matters (see `apply-all.sh`): `dedup-next-turn` before the perf patch, `normalize-tool-id` before `orphaned-tool-use-repair`.
 
 ### Performance patches (`@mariozechner+pi-coding-agent+0.80.3.patch`)
 
@@ -73,6 +73,8 @@ Fixes `tool_use.id: String should match pattern '^[a-zA-Z0-9_-]+$'` when switchi
 - `normalizeToolCallId` now returns `"tool_call_0"` for empty/null input
 - `block.id` always sanitized at the point of building `tool_use` blocks
 - `toolCallId` always sanitized when building `tool_result` blocks
+
+> **Rebased to v0.80.10:** upstream now threads `normalizeToolCallId` through `transformMessages` (covering the cross-model replay case) and split tool_result building into `convertToolResult`. The patch's residual value is the empty/null-id guard plus the payload-build-time safety net at both build points (`convertToolResult`'s `tool_use_id: normalizeToolCallId(msg.toolCallId)` and the `tool_use` block's `id: normalizeToolCallId(block.id)`). The orphan-repair synthetic ids derive from the already-normalized `tool_use` blocks, so no extra normalization is needed there.
 
 ## Key architecture notes
 
